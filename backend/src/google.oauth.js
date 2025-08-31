@@ -4,7 +4,7 @@ const exchangeCodeForTokens = async (serverAuthCode, oauthConfig) => {
   try {
     const oauth2Client = new google.auth.OAuth2(
       oauthConfig.clientId,
-      undefined,
+      oauthConfig.clientSecret,
       oauthConfig.redirectUri
     );
 
@@ -31,7 +31,7 @@ const refreshAccessToken = async (refreshToken, oauthConfig) => {
   try {
     const oauth2Client = new google.auth.OAuth2(
       oauthConfig.clientId,
-      undefined,
+      oauthConfig.clientSecret,
       oauthConfig.redirectUri
     );
 

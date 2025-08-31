@@ -35,10 +35,19 @@ class AuthService extends ChangeNotifier {
   }
 
   void _initializeGoogleSignIn() {
-    _googleSignIn = GoogleSignIn(
-      clientId: AppConfig.googleClientId,
-      scopes: AppConfig.youtubeScopes,
-    );
+    try {
+      _googleSignIn = GoogleSignIn(
+        clientId: AppConfig.googleClientId,
+        scopes: AppConfig.youtubeScopes,
+        serverClientId: AppConfig.googleClientId, // Ensure server-side auth code
+      );
+      if (kDebugMode) {
+        print('GoogleSignIn initialized with clientId: ${AppConfig.googleClientId}');
+        print('Scopes: ${AppConfig.youtubeScopes}');
+      }
+    } catch (e) {
+      _handleError('Failed to initialize Google Sign In: $e');
+    }
   }
 
   Future<void> _checkAuthState() async {
@@ -101,16 +110,29 @@ class AuthService extends ChangeNotifier {
       // Sign out first to ensure fresh authentication
       await _googleSignIn!.signOut();
       
+      if (kDebugMode) {
+        print('Starting Google Sign In...');
+      }
+      
       final GoogleSignInAccount? account = await _googleSignIn!.signIn();
       if (account == null) {
         _handleError('YouTube authentication cancelled');
         return false;
       }
+      
+      if (kDebugMode) {
+        print('Google Sign In successful for: ${account.email}');
+      }
+      
       // Use the serverAuthCode from the account object (not from auth)
       final String? serverAuthCode = account.serverAuthCode;
       if (serverAuthCode == null) {
         _handleError('Failed to get server auth code');
         return false;
+      }
+      
+      if (kDebugMode) {
+        print('Server auth code obtained, exchanging with backend...');
       }
 
       // Exchange server auth code with backend
@@ -138,6 +160,15 @@ class AuthService extends ChangeNotifier {
         return false;
       }
     } catch (e) {
+      if (kDebugMode) {
+        print('YouTube authentication error details: $e');
+        if (e.toString().contains('PlatformException')) {
+          print('This appears to be a Google Play Services or OAuth configuration error.');
+          print('Check: 1) SHA-1 fingerprint in Google Cloud Console');
+          print('       2) Package name matches in Google Cloud Console');
+          print('       3) OAuth redirect URI configuration');
+        }
+      }
       _handleError('YouTube authentication failed: $e');
       return false;
     }

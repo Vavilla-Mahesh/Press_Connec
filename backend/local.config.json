@@ -5,6 +5,7 @@
   ],
   "oauth": {
     "clientId": "448534839228-64f8ncu1g6lud7mjaa0evpoiuq3bu1dn.apps.googleusercontent.com",
+    "clientSecret": "GOCSPX-YOUR_CLIENT_SECRET_HERE",
     "redirectUri": "com.example.press_connect:/oauth2redirect"
   },
   "jwt": {
