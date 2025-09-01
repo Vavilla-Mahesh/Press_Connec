@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:dio/dio.dart';
+import 'package:camera/camera.dart';
 import '../config.dart';
 
 enum StreamState {
@@ -40,12 +41,13 @@ class LiveService extends ChangeNotifier {
   StreamState _streamState = StreamState.idle;
   String? _errorMessage;
   LiveStreamInfo? _currentStream;
+  CameraController? _cameraController;
   
   StreamState get streamState => _streamState;
   String? get errorMessage => _errorMessage;
   LiveStreamInfo? get currentStream => _currentStream;
   bool get isLive => _streamState == StreamState.live;
-  bool get canStartStream => _streamState == StreamState.idle;
+  bool get canStartStream => _streamState == StreamState.idle && _currentStream != null;
   bool get canStopStream => _streamState == StreamState.live;
 
   Future<bool> createLiveStream() async {
@@ -74,6 +76,7 @@ class LiveService extends ChangeNotifier {
 
       if (response.statusCode == 200) {
         _currentStream = LiveStreamInfo.fromJson(response.data);
+        
         _setState(StreamState.idle); // Ready to start streaming
         _errorMessage = null;
         return true;
@@ -93,23 +96,19 @@ class LiveService extends ChangeNotifier {
       return false;
     }
 
-    _setState(StreamState.live);
-    return true;
-  }
-
-  Future<bool> stopStream() async {
-    if (_streamState != StreamState.live) {
-      return true;
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      _handleError('Camera not initialized');
+      return false;
     }
 
-    _setState(StreamState.stopping);
+    _setState(StreamState.preparing);
 
     try {
-      // Optionally call backend to end the broadcast
-      if (_currentStream?.broadcastId != null) {
-        final sessionToken = await _secureStorage.read(key: 'app_session');
+      // First call backend to start the YouTube broadcast
+      final sessionToken = await _secureStorage.read(key: 'app_session');
+      if (sessionToken != null && _currentStream!.broadcastId != null) {
         await _dio.post(
-          '${AppConfig.backendBaseUrl}/live/end',
+          '${AppConfig.backendBaseUrl}/live/start',
           data: {
             'broadcastId': _currentStream!.broadcastId,
           },
@@ -121,6 +120,55 @@ class LiveService extends ChangeNotifier {
         );
       }
 
+      // TODO: Implement actual RTMP streaming using rtmp_broadcaster
+      // For now, just mark as live for UI purposes
+      _setState(StreamState.live);
+      
+      if (kDebugMode) {
+        print('Stream started with RTMP URL: ${_currentStream!.rtmpUrl}');
+      }
+      
+      return true;
+    } catch (e) {
+      _handleError('Failed to start stream: $e');
+      return false;
+    }
+  }
+
+  Future<bool> stopStream() async {
+    if (_streamState != StreamState.live) {
+      return true;
+    }
+
+    _setState(StreamState.stopping);
+
+    try {
+      // Call backend to end the broadcast
+      if (_currentStream?.broadcastId != null) {
+        final sessionToken = await _secureStorage.read(key: 'app_session');
+        if (sessionToken != null) {
+          try {
+            await _dio.post(
+              '${AppConfig.backendBaseUrl}/live/end',
+              data: {
+                'broadcastId': _currentStream!.broadcastId,
+              },
+              options: Options(
+                headers: {
+                  'Authorization': 'Bearer $sessionToken',
+                },
+              ),
+            );
+          } catch (e) {
+            // Log error but don't fail the stop operation
+            if (kDebugMode) {
+              print('Warning: Failed to end broadcast on backend: $e');
+            }
+          }
+        }
+      }
+
+      // Clean up resources
       _currentStream = null;
       _setState(StreamState.idle);
       return true;
@@ -134,6 +182,12 @@ class LiveService extends ChangeNotifier {
     _currentStream = null;
     _setState(StreamState.idle);
     _errorMessage = null;
+  }
+
+  // Set camera controller for streaming
+  void setCameraController(CameraController? controller) {
+    _cameraController = controller;
+    notifyListeners();
   }
 
   void _setState(StreamState state) {

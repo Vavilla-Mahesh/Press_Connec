@@ -103,6 +103,46 @@ const createLiveStream = async (req, res) => {
   }
 };
 
+const startLiveStream = async (req, res) => {
+  try {
+    const { broadcastId } = req.body;
+    const username = req.user.username;
+    
+    if (!broadcastId) {
+      return res.status(400).json({ error: 'Broadcast ID required' });
+    }
+
+    // Get stored tokens for this user
+    const tokens = await tokenStore.getTokens(username);
+    
+    if (!tokens) {
+      return res.status(401).json({ error: 'YouTube not connected' });
+    }
+
+    // Get YouTube API instance
+    const youtube = googleOAuth.getYouTubeAPI(tokens.access_token);
+
+    // Transition broadcast to live
+    await youtube.liveBroadcasts.transition({
+      part: ['status'],
+      id: broadcastId,
+      broadcastStatus: 'live'
+    });
+
+    res.json({
+      success: true,
+      message: 'Live stream started successfully'
+    });
+
+  } catch (error) {
+    console.error('Start live stream error:', error);
+    res.status(500).json({ 
+      error: 'Failed to start live stream',
+      details: error.message
+    });
+  }
+};
+
 const endLiveStream = async (req, res) => {
   try {
     const { broadcastId } = req.body;
@@ -145,5 +185,6 @@ const endLiveStream = async (req, res) => {
 
 module.exports = {
   createLiveStream,
+  startLiveStream,
   endLiveStream
 };

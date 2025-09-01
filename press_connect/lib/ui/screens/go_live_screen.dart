@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:image_gallery_saver/image_gallery_saver.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'dart:io';
 import '../../services/live_service.dart';
 import '../../services/watermark_service.dart';
 import '../../services/theme_service.dart';
@@ -21,6 +26,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   bool _isCameraInitialized = false;
+  bool _isRecording = false;
   List<CameraDescription> _cameras = [];
 
   @override
@@ -59,7 +65,11 @@ class _GoLiveScreenState extends State<GoLiveScreen>
         
         await _cameraController!.initialize();
         
+        // Set camera controller in LiveService for RTMP streaming
         if (mounted) {
+          final liveService = Provider.of<LiveService>(context, listen: false);
+          liveService.setCameraController(_cameraController);
+          
           setState(() {
             _isCameraInitialized = true;
           });
@@ -319,6 +329,26 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                               tooltip: 'Take Snapshot',
                             ),
                           ),
+                          
+                          const SizedBox(width: 12),
+                          
+                          // Video Recording Button
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: _isRecording 
+                                ? LinearGradient(colors: [Colors.red, Colors.red.shade700])
+                                : ThemeService.accentGradient,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: IconButton(
+                              onPressed: _toggleVideoRecording,
+                              icon: Icon(
+                                _isRecording ? Icons.stop : Icons.videocam,
+                                color: Colors.white,
+                              ),
+                              tooltip: _isRecording ? 'Stop Recording' : 'Start Recording',
+                            ),
+                          ),
                         ],
                       ),
                       
@@ -380,11 +410,119 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     await liveService.stopStream();
   }
 
-  void _takeSnapshot() {
-    // Implementation for taking snapshots
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Snapshot taken!')),
-    );
+  void _takeSnapshot() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Camera not ready')),
+      );
+      return;
+    }
+
+    try {
+      // Request permissions
+      final hasPermission = await _requestGalleryPermission();
+      if (!hasPermission) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gallery permission denied')),
+        );
+        return;
+      }
+
+      // Take picture
+      final XFile picture = await _cameraController!.takePicture();
+      
+      // Save to gallery
+      final result = await ImageGallerySaver.saveFile(picture.path);
+      
+      if (result['isSuccess'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Snapshot saved to gallery!')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to save snapshot')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error taking snapshot: $e')),
+      );
+    }
+  }
+
+  void _toggleVideoRecording() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Camera not ready')),
+      );
+      return;
+    }
+
+    try {
+      if (_isRecording) {
+        // Stop recording
+        final XFile videoFile = await _cameraController!.stopVideoRecording();
+        
+        // Request permissions and save to gallery
+        final hasPermission = await _requestGalleryPermission();
+        if (hasPermission) {
+          final result = await ImageGallerySaver.saveFile(videoFile.path);
+          
+          if (result['isSuccess'] == true) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Video saved to gallery!')),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Failed to save video')),
+            );
+          }
+        }
+
+        setState(() {
+          _isRecording = false;
+        });
+      } else {
+        // Start recording
+        await _cameraController!.startVideoRecording();
+        
+        setState(() {
+          _isRecording = true;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Recording started')),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isRecording = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error with video recording: $e')),
+      );
+    }
+  }
+
+  Future<bool> _requestGalleryPermission() async {
+    // For Android 13+ (API 33+), we need different permissions
+    if (Platform.isAndroid) {
+      final androidInfo = await DeviceInfoPlugin().androidInfo;
+      if (androidInfo.version.sdkInt >= 33) {
+        // Android 13+ uses scoped storage
+        final photos = await Permission.photos.request();
+        final videos = await Permission.videos.request();
+        return photos.isGranted && videos.isGranted;
+      } else {
+        // Android 12 and below
+        final storage = await Permission.storage.request();
+        return storage.isGranted;
+      }
+    } else if (Platform.isIOS) {
+      final photos = await Permission.photos.request();
+      return photos.isGranted;
+    }
+    return true;
   }
 }
 
