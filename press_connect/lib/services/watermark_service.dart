@@ -54,8 +54,10 @@ class WatermarkService extends ChangeNotifier {
       return '';
     }
 
-    return '[1:v]scale=iw:ih,format=rgba,colorchannelmixer=aa=$alphaValue[wm];'
-           '[0:v][wm]overlay=(W-w)/2:(H-h)/2:enable=always';
+    // Simplified overlay filter that works better on mobile
+    final opacity = alphaValue.toStringAsFixed(2);
+    return '[1:v]scale=320:240,format=rgba,colorchannelmixer=aa=$opacity[wm];'
+           '[0:v][wm]overlay=(W-w)-20:(H-h)-20:enable=1';
   }
 
   // Configuration for RTMP broadcaster watermark

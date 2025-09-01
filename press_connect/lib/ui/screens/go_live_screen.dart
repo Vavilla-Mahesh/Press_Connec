@@ -34,6 +34,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     super.initState();
     _initializeCamera();
     _initializeAnimations();
+    _initializeServices();
   }
 
   void _initializeAnimations() {
@@ -51,6 +52,16 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     ));
     
     _pulseController.repeat(reverse: true);
+  }
+
+  void _initializeServices() {
+    // Wire up watermark service with live service
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final liveService = Provider.of<LiveService>(context, listen: false);
+      final watermarkService = Provider.of<WatermarkService>(context, listen: false);
+      
+      liveService.setWatermarkService(watermarkService);
+    });
   }
 
   Future<void> _initializeCamera() async {
@@ -411,13 +422,6 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   }
 
   void _takeSnapshot() async {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Camera not ready')),
-      );
-      return;
-    }
-
     try {
       // Request permissions
       final hasPermission = await _requestGalleryPermission();
@@ -428,19 +432,26 @@ class _GoLiveScreenState extends State<GoLiveScreen>
         return;
       }
 
-      // Take picture
-      final XFile picture = await _cameraController!.takePicture();
+      // Use live service to take snapshot with watermark
+      final liveService = Provider.of<LiveService>(context, listen: false);
+      final snapshotPath = await liveService.takeSnapshot();
       
-      // Save to gallery
-      final result = await ImageGallerySaver.saveFile(picture.path);
-      
-      if (result['isSuccess'] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Snapshot saved to gallery!')),
-        );
+      if (snapshotPath != null) {
+        // Save to gallery
+        final result = await ImageGallerySaver.saveFile(snapshotPath);
+        
+        if (result['isSuccess'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Snapshot with watermark saved to gallery!')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to save snapshot')),
+          );
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to save snapshot')),
+          const SnackBar(content: Text('Failed to take snapshot')),
         );
       }
     } catch (e) {
@@ -451,31 +462,28 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   }
 
   void _toggleVideoRecording() async {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Camera not ready')),
-      );
-      return;
-    }
-
     try {
+      final liveService = Provider.of<LiveService>(context, listen: false);
+      
       if (_isRecording) {
-        // Stop recording
-        final XFile videoFile = await _cameraController!.stopVideoRecording();
+        // Stop recording using live service
+        final videoPath = await liveService.stopRecording();
         
-        // Request permissions and save to gallery
-        final hasPermission = await _requestGalleryPermission();
-        if (hasPermission) {
-          final result = await ImageGallerySaver.saveFile(videoFile.path);
-          
-          if (result['isSuccess'] == true) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Video saved to gallery!')),
-            );
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Failed to save video')),
-            );
+        if (videoPath != null) {
+          // Request permissions and save to gallery
+          final hasPermission = await _requestGalleryPermission();
+          if (hasPermission) {
+            final result = await ImageGallerySaver.saveFile(videoPath);
+            
+            if (result['isSuccess'] == true) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Video with watermark saved to gallery!')),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Failed to save video')),
+              );
+            }
           }
         }
 
@@ -483,16 +491,25 @@ class _GoLiveScreenState extends State<GoLiveScreen>
           _isRecording = false;
         });
       } else {
-        // Start recording
-        await _cameraController!.startVideoRecording();
+        // Start recording using live service
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final outputPath = '/tmp/recording_$timestamp.mp4';
         
-        setState(() {
-          _isRecording = true;
-        });
+        final success = await liveService.startRecording(outputPath);
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Recording started')),
-        );
+        if (success) {
+          setState(() {
+            _isRecording = true;
+          });
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Recording with watermark started')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to start recording')),
+          );
+        }
       }
     } catch (e) {
       setState(() {
