@@ -18,8 +18,31 @@ const PORT = process.env.PORT || 5000;
 let config;
 try {
   const configPath = path.join(__dirname, 'local.config.json');
-  config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  config.backendBaseUrl = process.env.BACKEND_BASE_URL;
+  const localConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  
+  // Merge local config with environment variables
+  config = {
+    appLogin: [
+      { 
+        username: process.env.APP_USERNAME || localConfig.appLogin[0].username,
+        password: process.env.APP_PASSWORD || localConfig.appLogin[0].password
+      }
+    ],
+    oauth: {
+      clientId: process.env.GOOGLE_CLIENT_ID || localConfig.oauth.clientId,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || localConfig.oauth.clientSecret || null,
+      redirectUri: localConfig.oauth.redirectUri
+    },
+    jwt: {
+      secret: process.env.JWT_SECRET || localConfig.jwt.secret,
+      expiresIn: localConfig.jwt.expiresIn
+    },
+    backendBaseUrl: process.env.BACKEND_BASE_URL
+  };
+  
+  console.log('Configuration loaded successfully');
+  console.log(`OAuth Client ID: ${config.oauth.clientId}`);
+  console.log(`OAuth Client Secret: ${config.oauth.clientSecret ? '[CONFIGURED]' : '[NOT CONFIGURED - Android OAuth Mode]'}`);
 } catch (error) {
   console.error('Failed to load configuration:', error);
   process.exit(1);

@@ -2,9 +2,11 @@ const { google } = require('googleapis');
 
 const exchangeCodeForTokens = async (serverAuthCode, oauthConfig) => {
   try {
+    // For Android OAuth, client secret is not required and should not be used
+    // This follows OAuth 2.0 best practices for public clients (mobile apps)
     const oauth2Client = new google.auth.OAuth2(
       oauthConfig.clientId,
-      oauthConfig.clientSecret,
+      oauthConfig.clientSecret || null, // Allow null/undefined for Android apps
       oauthConfig.redirectUri
     );
 
@@ -29,9 +31,10 @@ const exchangeCodeForTokens = async (serverAuthCode, oauthConfig) => {
 
 const refreshAccessToken = async (refreshToken, oauthConfig) => {
   try {
+    // For Android OAuth, client secret is not required and should not be used
     const oauth2Client = new google.auth.OAuth2(
       oauthConfig.clientId,
-      oauthConfig.clientSecret,
+      oauthConfig.clientSecret || null, // Allow null/undefined for Android apps
       oauthConfig.redirectUri
     );
 
