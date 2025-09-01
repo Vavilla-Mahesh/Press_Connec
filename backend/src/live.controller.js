@@ -143,7 +143,54 @@ const endLiveStream = async (req, res) => {
   }
 };
 
+const transitionBroadcast = async (req, res) => {
+  try {
+    const { broadcastId, broadcastStatus } = req.body;
+    const username = req.user.username;
+    
+    if (!broadcastId || !broadcastStatus) {
+      return res.status(400).json({ error: 'Broadcast ID and status required' });
+    }
+
+    // Validate broadcast status
+    const validStatuses = ['live', 'complete'];
+    if (!validStatuses.includes(broadcastStatus)) {
+      return res.status(400).json({ error: 'Invalid broadcast status' });
+    }
+
+    // Get stored tokens for this user
+    const tokens = await tokenStore.getTokens(username);
+    
+    if (!tokens) {
+      return res.status(401).json({ error: 'YouTube not connected' });
+    }
+
+    // Get YouTube API instance
+    const youtube = googleOAuth.getYouTubeAPI(tokens.access_token);
+
+    // Transition broadcast status
+    await youtube.liveBroadcasts.transition({
+      part: ['status'],
+      id: broadcastId,
+      broadcastStatus: broadcastStatus
+    });
+
+    res.json({
+      success: true,
+      message: `Broadcast transitioned to ${broadcastStatus} successfully`
+    });
+
+  } catch (error) {
+    console.error('Transition broadcast error:', error);
+    res.status(500).json({ 
+      error: 'Failed to transition broadcast',
+      details: error.message
+    });
+  }
+};
+
 module.exports = {
   createLiveStream,
-  endLiveStream
+  endLiveStream,
+  transitionBroadcast
 };

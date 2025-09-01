@@ -4,6 +4,7 @@ import 'package:camera/camera.dart';
 import '../../services/live_service.dart';
 import '../../services/watermark_service.dart';
 import '../../services/theme_service.dart';
+import '../../services/rtmp_streaming_service.dart';
 import '../widgets/animated_gradient_background.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/animated_button.dart';
@@ -63,6 +64,15 @@ class _GoLiveScreenState extends State<GoLiveScreen>
           setState(() {
             _isCameraInitialized = true;
           });
+          
+          // Initialize live service with camera and watermark services
+          final liveService = Provider.of<LiveService>(context, listen: false);
+          final watermarkService = Provider.of<WatermarkService>(context, listen: false);
+          
+          await liveService.initialize(
+            cameraController: _cameraController!,
+            watermarkService: watermarkService,
+          );
         }
       }
     } catch (e) {
@@ -155,62 +165,120 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                           },
                         ),
                         
-                        // Live Indicator
+                        // Live Indicator and Stream Status
                         Consumer<LiveService>(
                           builder: (context, liveService, child) {
-                            if (!liveService.isLive) {
+                            return Positioned(
+                              top: 16,
+                              left: 16,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Live indicator
+                                  if (liveService.isLive)
+                                    AnimatedBuilder(
+                                      animation: _pulseAnimation,
+                                      builder: (context, child) {
+                                        return Transform.scale(
+                                          scale: _pulseAnimation.value,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 6,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Colors.red,
+                                              borderRadius: BorderRadius.circular(20),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.red.withOpacity(0.5),
+                                                  blurRadius: 10,
+                                                  spreadRadius: 2,
+                                                ),
+                                              ],
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Container(
+                                                  width: 8,
+                                                  height: 8,
+                                                  decoration: const BoxDecoration(
+                                                    color: Colors.white,
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                const Text(
+                                                  'LIVE',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  
+                                  // Stream status
+                                  if (liveService.streamState != StreamState.idle)
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 8),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.7),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        _getStreamStateText(liveService.streamState),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                        
+                        // RTMP Streaming Status
+                        Consumer<LiveService>(
+                          builder: (context, liveService, child) {
+                            final rtmpService = liveService.rtmpStreamingService;
+                            if (rtmpService.state == RTMPStreamState.idle) {
                               return const SizedBox.shrink();
                             }
                             
                             return Positioned(
                               top: 16,
-                              left: 16,
-                              child: AnimatedBuilder(
-                                animation: _pulseAnimation,
-                                builder: (context, child) {
-                                  return Transform.scale(
-                                    scale: _pulseAnimation.value,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red,
-                                        borderRadius: BorderRadius.circular(20),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.red.withOpacity(0.5),
-                                            blurRadius: 10,
-                                            spreadRadius: 2,
-                                          ),
-                                        ],
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Container(
-                                            width: 8,
-                                            height: 8,
-                                            decoration: const BoxDecoration(
-                                              color: Colors.white,
-                                              shape: BoxShape.circle,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          const Text(
-                                            'LIVE',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
+                              right: 16,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _getRTMPStatusColor(rtmpService.state).withOpacity(0.9),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  _getRTMPStatusText(rtmpService.state),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
                               ),
                             );
                           },
@@ -362,15 +430,11 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   void _handleGoLive() async {
     final liveService = Provider.of<LiveService>(context, listen: false);
     
-    // First create the stream
-    final streamCreated = await liveService.createLiveStream();
-    if (!streamCreated) return;
-    
-    // Then start streaming
-    final success = await liveService.startStream();
+    // Create stream and auto-start streaming
+    final success = await liveService.createLiveStream();
     if (!success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to start live stream')),
+        SnackBar(content: Text('Failed to start live stream: ${liveService.errorMessage}')),
       );
     }
   }
@@ -385,6 +449,51 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Snapshot taken!')),
     );
+  }
+
+  String _getStreamStateText(StreamState state) {
+    switch (state) {
+      case StreamState.preparing:
+        return 'Preparing...';
+      case StreamState.live:
+        return 'Broadcasting';
+      case StreamState.stopping:
+        return 'Stopping...';
+      case StreamState.error:
+        return 'Error';
+      case StreamState.idle:
+        return 'Ready';
+    }
+  }
+
+  String _getRTMPStatusText(RTMPStreamState state) {
+    switch (state) {
+      case RTMPStreamState.preparing:
+        return 'Connecting...';
+      case RTMPStreamState.streaming:
+        return 'Streaming';
+      case RTMPStreamState.stopping:
+        return 'Disconnecting...';
+      case RTMPStreamState.error:
+        return 'Stream Error';
+      case RTMPStreamState.idle:
+        return 'Idle';
+    }
+  }
+
+  Color _getRTMPStatusColor(RTMPStreamState state) {
+    switch (state) {
+      case RTMPStreamState.preparing:
+        return Colors.orange;
+      case RTMPStreamState.streaming:
+        return Colors.green;
+      case RTMPStreamState.stopping:
+        return Colors.orange;
+      case RTMPStreamState.error:
+        return Colors.red;
+      case RTMPStreamState.idle:
+        return Colors.grey;
+    }
   }
 }
 
