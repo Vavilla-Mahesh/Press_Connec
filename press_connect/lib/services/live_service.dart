@@ -58,10 +58,10 @@ class LiveService extends ChangeNotifier {
   void initialize({
     required CameraController cameraController,
     required WatermarkService watermarkService,
-  }) {
+  }) async {
     _cameraController = cameraController;
     _watermarkService = watermarkService;
-    _rtmpStreamingService.initialize(
+    await _rtmpStreamingService.initialize(
       cameraController: cameraController,
       watermarkService: watermarkService,
     );

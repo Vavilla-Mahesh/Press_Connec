@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:camera/camera.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
@@ -6,6 +7,7 @@ import 'package:ffmpeg_kit_flutter_new/session.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'watermark_service.dart';
 
 enum RTMPStreamState {
@@ -23,6 +25,7 @@ class RTMPStreamingService extends ChangeNotifier {
   String? _rtmpUrl;
   WatermarkService? _watermarkService;
   FFmpegSession? _streamingSession;
+  String? _watermarkTempPath;
   
   RTMPStreamState get state => _state;
   String? get errorMessage => _errorMessage;
@@ -30,12 +33,39 @@ class RTMPStreamingService extends ChangeNotifier {
   bool get canStart => _state == RTMPStreamState.idle;
   bool get canStop => _state == RTMPStreamState.streaming;
 
-  void initialize({
+  Future<void> initialize({
     required CameraController cameraController,
     required WatermarkService watermarkService,
-  }) {
+  }) async {
     _cameraController = cameraController;
     _watermarkService = watermarkService;
+    
+    // Prepare watermark file
+    await _prepareWatermarkFile();
+  }
+
+  Future<void> _prepareWatermarkFile() async {
+    try {
+      if (_watermarkService?.watermarkPath.startsWith('assets/') == true) {
+        final tempDir = await getTemporaryDirectory();
+        final tempFile = File('${tempDir.path}/watermark.png');
+        
+        final byteData = await rootBundle.load(_watermarkService!.watermarkPath);
+        await tempFile.writeAsBytes(byteData.buffer.asUint8List());
+        _watermarkTempPath = tempFile.path;
+        
+        if (kDebugMode) {
+          print('Watermark asset copied to: $_watermarkTempPath');
+        }
+      } else {
+        _watermarkTempPath = _watermarkService?.watermarkPath;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to prepare watermark file: $e');
+      }
+      _watermarkTempPath = null;
+    }
   }
 
   Future<bool> startStreaming(String rtmpUrl) async {
@@ -146,14 +176,11 @@ class RTMPStreamingService extends ChangeNotifier {
     }
     
     // Add watermark if enabled
-    if (_watermarkService?.isEnabled == true) {
-      final watermarkPath = await _getWatermarkPath();
-      if (watermarkPath != null) {
-        commandParts.addAll([
-          '-i', watermarkPath,
-          '-filter_complex', _buildWatermarkFilter(),
-        ]);
-      }
+    if (_watermarkService?.isEnabled == true && _watermarkTempPath != null) {
+      commandParts.addAll([
+        '-i', _watermarkTempPath!,
+        '-filter_complex', _buildWatermarkFilter(),
+      ]);
     }
     
     // Video encoding settings
@@ -185,29 +212,6 @@ class RTMPStreamingService extends ChangeNotifier {
     ]);
     
     return commandParts.join(' ');
-  }
-
-  Future<String?> _getWatermarkPath() async {
-    try {
-      final watermarkPath = _watermarkService!.watermarkPath;
-      
-      // If it's an asset path, we need to copy it to temp directory
-      if (watermarkPath.startsWith('assets/')) {
-        final tempDir = await getTemporaryDirectory();
-        final tempFile = File('${tempDir.path}/watermark.png');
-        
-        // Copy asset to temp file (this would need to be implemented)
-        // For now, return null to disable watermark if asset path
-        return null;
-      }
-      
-      return watermarkPath;
-    } catch (e) {
-      if (kDebugMode) {
-        print('Failed to get watermark path: $e');
-      }
-      return null;
-    }
   }
 
   String _buildWatermarkFilter() {

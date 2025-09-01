@@ -69,7 +69,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
           final liveService = Provider.of<LiveService>(context, listen: false);
           final watermarkService = Provider.of<WatermarkService>(context, listen: false);
           
-          liveService.initialize(
+          await liveService.initialize(
             cameraController: _cameraController!,
             watermarkService: watermarkService,
           );
