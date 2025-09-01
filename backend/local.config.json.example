@@ -1,0 +1,15 @@
+{
+  "oauth": {
+    "client_id": "YOUR_GOOGLE_CLIENT_ID",
+    "client_secret": "YOUR_GOOGLE_CLIENT_SECRET",
+    "redirect_uri": "com.example.press_connect:/oauth2redirect"
+  },
+  "jwt": {
+    "secret": "your-jwt-secret-key-here"
+  },
+  "users": {
+    "admin": {
+      "password": "$2b$12$hashedPasswordHere"
+    }
+  }
+}

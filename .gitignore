@@ -37,7 +37,7 @@ backend/tokens.json
 *.swo
 
 # Sensitive configuration (replace with your actual values)
-backend/local.config.json.example
+# backend/local.config.json.example
 
 # Build artifacts
 android/app/build/
