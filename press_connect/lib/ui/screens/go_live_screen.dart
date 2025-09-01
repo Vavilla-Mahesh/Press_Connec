@@ -492,8 +492,9 @@ class _GoLiveScreenState extends State<GoLiveScreen>
         });
       } else {
         // Start recording using live service
+        final tempDir = await getTemporaryDirectory();
         final timestamp = DateTime.now().millisecondsSinceEpoch;
-        final outputPath = '/tmp/recording_$timestamp.mp4';
+        final outputPath = '${tempDir.path}/recording_$timestamp.mp4';
         
         final success = await liveService.startRecording(outputPath);
         
