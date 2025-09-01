@@ -30,18 +30,19 @@ keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -sto
 - `android/app/src/main/AndroidManifest.xml` (package attribute)
 - Google Cloud Console OAuth client configuration
 
-#### 4. Missing Client Secret (Backend)
-**Problem**: OAuth client secret not configured for server-side token exchange.
-**Solution**: Add `clientSecret` to `backend/local.config.json`:
+#### 4. Android OAuth Configuration (No Client Secret)
+**Status**: ✅ **RESOLVED - Client Secret No Longer Required**
+**Solution**: The backend now supports Android OAuth without client secret (recommended for mobile apps):
 ```json
 {
   "oauth": {
     "clientId": "YOUR_CLIENT_ID",
-    "clientSecret": "YOUR_CLIENT_SECRET",
     "redirectUri": "com.example.press_connect:/oauth2redirect"
   }
 }
 ```
+
+**Note**: Client secrets should not be used in mobile applications as they cannot be securely stored. The current implementation follows OAuth 2.0 best practices for public clients.
 
 #### 5. iOS URL Scheme Not Configured
 **Problem**: iOS app can't handle OAuth redirects.

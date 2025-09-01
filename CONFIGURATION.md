@@ -21,9 +21,12 @@ This guide helps you configure the Press Connect app for production use.
 1. Go to **APIs & Services > Credentials**
 2. Click **Create Credentials > OAuth 2.0 Client ID**
 3. Configure the application type:
-   - **Android**: Add package name and SHA-1 certificate fingerprint
+   - **Android**: Add package name (`com.example.press_connect`) and SHA-1 certificate fingerprint
    - **iOS**: Add bundle identifier
-4. Download the configuration file
+4. **Important for Android**: No client secret is needed or generated for Android applications
+5. Note down the Client ID for your app configuration
+
+**⚠️ Security Note**: Android apps use OAuth 2.0 "public client" flow without client secrets, which is the recommended secure approach for mobile applications.
 
 ### 4. Get SHA-1 Fingerprint (Android)
 
@@ -68,8 +71,7 @@ Edit `backend/local.config.json`:
   ],
   "oauth": {
     "clientId": "YOUR_ACTUAL_CLIENT_ID.apps.googleusercontent.com",
-    "clientSecret": "YOUR_ACTUAL_CLIENT_SECRET",
-    "redirectUri": "com.pressconnect.app:/oauth2redirect"
+    "redirectUri": "com.example.press_connect:/oauth2redirect"
   },
   "jwt": {
     "secret": "your-super-secret-jwt-key-min-32-characters",
@@ -78,7 +80,10 @@ Edit `backend/local.config.json`:
 }
 ```
 
-**⚠️ Security Note**: Never commit actual credentials to version control!
+**⚠️ Security Note**: 
+- **No Client Secret Required**: This configuration uses Android OAuth flow without client secret, which is the secure approach for mobile apps
+- Client secrets should never be stored in mobile applications as they cannot be kept secure
+- Never commit actual credentials to version control!
 
 ### 3. Add Watermark Images
 
@@ -95,14 +100,15 @@ For production deployment, use environment variables instead of config files:
 export APP_USERNAME=your_admin_username
 export APP_PASSWORD=your_secure_password
 export GOOGLE_CLIENT_ID=your_client_id
-export GOOGLE_CLIENT_SECRET=your_client_secret
+# GOOGLE_CLIENT_SECRET is optional for Android OAuth (not recommended for mobile apps)
+# export GOOGLE_CLIENT_SECRET=your_client_secret
 export JWT_SECRET=your_jwt_secret
 export PORT=5000
 ```
 
 ### Modify Backend for Environment Variables
 
-Update `server.js` to read from environment variables when available:
+The backend is already configured to read from environment variables when available:
 ```javascript
 const config = {
   appLogin: [
@@ -113,7 +119,7 @@ const config = {
   ],
   oauth: {
     clientId: process.env.GOOGLE_CLIENT_ID || localConfig.oauth.clientId,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET || localConfig.oauth.clientSecret,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || localConfig.oauth.clientSecret || null,
     redirectUri: localConfig.oauth.redirectUri
   },
   jwt: {

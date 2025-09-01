@@ -31,7 +31,12 @@ check_config "press_connect/assets/config.json" "com.example.press_connect:/oaut
 
 # Check backend config
 check_config "backend/local.config.json" "com.example.press_connect:/oauth2redirect" "Backend OAuth redirectUri"
-check_config "backend/local.config.json" "clientSecret" "Backend OAuth clientSecret"
+# Client secret is now optional for Android OAuth
+if grep -q "clientSecret" "backend/local.config.json" 2>/dev/null; then
+    echo "⚠️  Backend OAuth clientSecret: PRESENT (not recommended for Android apps)"
+else
+    echo "✅ Backend OAuth clientSecret: NOT PRESENT (Android OAuth mode - recommended)"
+fi
 
 # Check Android manifest
 check_config "press_connect/android/app/src/main/AndroidManifest.xml" 'android:scheme="com.example.press_connect"' "Android manifest URL scheme"
@@ -56,7 +61,11 @@ echo "🔧 Checking Backend OAuth Implementation..."
 echo "-----------------------------------------"
 
 # Check backend OAuth improvements
-check_config "backend/src/google.oauth.js" "oauthConfig.clientSecret" "Backend uses client secret"
+if grep -q "oauthConfig.clientSecret || null" "backend/src/google.oauth.js" 2>/dev/null; then
+    echo "✅ Backend OAuth implementation: UPDATED for Android (optional client secret)"
+else
+    echo "❌ Backend OAuth implementation: NOT UPDATED for Android"
+fi
 
 echo ""
 echo "📚 Checking Documentation..."
@@ -73,6 +82,6 @@ echo "   - Package name: com.example.press_connect"
 echo "   - SHA-1 fingerprint for your debug/release keystores"
 echo "   - Redirect URI: com.example.press_connect:/oauth2redirect"
 echo ""
-echo "2. Update the clientSecret in backend/local.config.json with actual value"
+echo "2. ✅ Client secret is no longer required for Android OAuth (more secure)"
 echo ""
 echo "3. Test the authentication flow on a device/emulator"
