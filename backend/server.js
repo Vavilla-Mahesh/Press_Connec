@@ -65,6 +65,7 @@ app.post('/auth/exchange', verifyToken, authController.exchangeCode);
 app.post('/live/create', verifyToken, liveController.createLiveStream);
 app.post('/live/transition', verifyToken, liveController.transitionBroadcast);
 app.post('/live/end', verifyToken, liveController.endLiveStream);
+app.get('/live/status', verifyToken, liveController.checkStreamStatus);
 
 // Health check
 app.get('/health', (req, res) => {
