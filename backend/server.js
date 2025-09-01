@@ -63,6 +63,7 @@ app.post('/auth/app-login', authController.appLogin);
 app.post('/auth/exchange', verifyToken, authController.exchangeCode);
 
 app.post('/live/create', verifyToken, liveController.createLiveStream);
+app.post('/live/start', verifyToken, liveController.startLiveStream);
 app.post('/live/end', verifyToken, liveController.endLiveStream);
 
 // Health check
