@@ -315,6 +315,32 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                               tooltip: 'Take Snapshot',
                             ),
                           ),
+                          
+                          const SizedBox(width: 8),
+                          
+                          // Recording Button
+                          Consumer<LiveService>(
+                            builder: (context, liveService, child) {
+                              return Container(
+                                decoration: BoxDecoration(
+                                  gradient: liveService.isRecording 
+                                    ? LinearGradient(
+                                        colors: [Colors.red.shade600, Colors.red.shade800],
+                                      )
+                                    : ThemeService.accentGradient,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: IconButton(
+                                  onPressed: liveService.isRecording ? _stopRecording : _startRecording,
+                                  icon: Icon(
+                                    liveService.isRecording ? Icons.stop : Icons.fiber_manual_record,
+                                    color: Colors.white,
+                                  ),
+                                  tooltip: liveService.isRecording ? 'Stop Recording' : 'Start Recording',
+                                ),
+                              );
+                            },
+                          ),
                         ],
                       ),
                       
@@ -414,11 +440,135 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     await liveService.stopStream(cameraController: _cameraController);
   }
 
-  void _takeSnapshot() {
-    // Implementation for taking snapshots
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Snapshot taken!')),
-    );
+  void _takeSnapshot() async {
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    
+    if (!liveService.isLive && !liveService.isTesting) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No active stream to capture snapshot from')),
+      );
+      return;
+    }
+
+    try {
+      final snapshotResult = await liveService.captureSnapshot();
+      
+      if (snapshotResult != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Snapshot captured! ID: ${snapshotResult['snapshotId']}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to capture snapshot: ${liveService.errorMessage ?? "Unknown error"}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Snapshot error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _startRecording() async {
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    
+    if (!liveService.isLive && !liveService.isTesting) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No active stream to record')),
+      );
+      return;
+    }
+
+    if (liveService.isRecording) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Recording already in progress')),
+      );
+      return;
+    }
+
+    try {
+      final success = await liveService.startRecording();
+      
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Recording started successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to start recording: ${liveService.errorMessage ?? "Unknown error"}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Recording error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _stopRecording() async {
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    
+    if (!liveService.isRecording) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No active recording to stop')),
+      );
+      return;
+    }
+
+    try {
+      final recordingResult = await liveService.stopRecording();
+      
+      if (recordingResult != null && mounted) {
+        final duration = recordingResult['duration'] ?? 0;
+        final fileSize = recordingResult['fileSize'] ?? 0;
+        final fileSizeMB = (fileSize / (1024 * 1024)).toStringAsFixed(1);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Recording stopped! Duration: ${duration}s, Size: ${fileSizeMB}MB'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to stop recording: ${liveService.errorMessage ?? "Unknown error"}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Stop recording error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   String _getButtonText(StreamState state) {

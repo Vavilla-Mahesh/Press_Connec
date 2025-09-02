@@ -45,11 +45,17 @@ class LiveService extends ChangeNotifier {
   StreamState _streamState = StreamState.idle;
   String? _errorMessage;
   LiveStreamInfo? _currentStream;
+  String? _serverStreamId;
+  String? _recordingId;
+  bool _isRecording = false;
   
   StreamState get streamState => _streamState;
   String? get errorMessage => _errorMessage;
   LiveStreamInfo? get currentStream => _currentStream;
   RTMPStreamingService get rtmpService => _rtmpService;
+  String? get serverStreamId => _serverStreamId;
+  String? get recordingId => _recordingId;
+  bool get isRecording => _isRecording;
   
   bool get isLive => _streamState == StreamState.live;
   bool get isTesting => _streamState == StreamState.testing;
@@ -122,10 +128,15 @@ class LiveService extends ChangeNotifier {
     try {
       _setState(testMode ? StreamState.testing : StreamState.preparing);
 
-      // Start RTMP streaming
+      // Start RTMP streaming to local relay endpoint
+      final localRtmpUrl = '${AppConfig.backendBaseUrl.replaceAll('http', 'rtmp')}/live/input';
+      
       final streamingStarted = await _rtmpService.startStreaming(
         cameraController: cameraController,
-        streamInfo: _currentStream!,
+        streamInfo: LiveStreamInfo(
+          ingestUrl: localRtmpUrl.split('/live/input')[0],
+          streamKey: 'input',
+        ),
         watermarkService: watermarkService,
       );
 
@@ -134,11 +145,18 @@ class LiveService extends ChangeNotifier {
         return false;
       }
 
+      // Start server-side stream processing with watermark
+      final serverStreamStarted = await _startServerSideStream(watermarkService);
+      if (!serverStreamStarted) {
+        await _rtmpService.stopStreaming(cameraController: cameraController);
+        return false;
+      }
+
       if (!testMode) {
         // Transition YouTube broadcast to live
         final transitioned = await _transitionBroadcast('live');
         if (!transitioned) {
-          // Stop RTMP streaming if YouTube transition failed
+          await _stopServerSideStream();
           await _rtmpService.stopStreaming(cameraController: cameraController);
           return false;
         }
@@ -160,6 +178,16 @@ class LiveService extends ChangeNotifier {
     _setState(StreamState.stopping);
 
     try {
+      // Stop recording if active
+      if (_isRecording && _recordingId != null) {
+        await stopRecording();
+      }
+
+      // Stop server-side stream processing
+      if (_serverStreamId != null) {
+        await _stopServerSideStream();
+      }
+
       // Stop RTMP streaming first
       await _rtmpService.stopStreaming(cameraController: cameraController);
 
@@ -182,6 +210,7 @@ class LiveService extends ChangeNotifier {
       }
 
       _currentStream = null;
+      _serverStreamId = null;
       _setState(StreamState.idle);
       return true;
     } catch (e) {
@@ -194,6 +223,219 @@ class LiveService extends ChangeNotifier {
     _currentStream = null;
     _setState(StreamState.idle);
     _errorMessage = null;
+    _serverStreamId = null;
+    _recordingId = null;
+    _isRecording = false;
+  }
+
+  /// Start server-side stream processing with watermark
+  Future<bool> _startServerSideStream(WatermarkService? watermarkService) async {
+    if (_currentStream == null) return false;
+
+    try {
+      final sessionToken = await _secureStorage.read(key: 'app_session');
+      if (sessionToken == null) {
+        _handleError('No authentication session found');
+        return false;
+      }
+
+      final localRtmpInput = '${AppConfig.backendBaseUrl.replaceAll('http', 'rtmp')}/live/input';
+      final youtubeRtmpOutput = _currentStream!.rtmpUrl;
+
+      Map<String, dynamic> watermarkConfig = {};
+      if (watermarkService != null && watermarkService.isEnabled) {
+        watermarkConfig = watermarkService.getRTMPWatermarkConfig();
+      }
+
+      final response = await _dio.post(
+        '${AppConfig.backendBaseUrl}/streaming/start',
+        data: {
+          'rtmpInput': localRtmpInput,
+          'rtmpOutput': youtubeRtmpOutput,
+          'watermarkConfig': watermarkConfig,
+        },
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $sessionToken',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        _serverStreamId = response.data['streamId'];
+        return true;
+      } else {
+        _handleError('Failed to start server stream: ${response.statusMessage}');
+        return false;
+      }
+    } catch (e) {
+      _handleError('Failed to start server stream: $e');
+      return false;
+    }
+  }
+
+  /// Stop server-side stream processing
+  Future<bool> _stopServerSideStream() async {
+    if (_serverStreamId == null) return true;
+
+    try {
+      final sessionToken = await _secureStorage.read(key: 'app_session');
+      if (sessionToken == null) return false;
+
+      await _dio.post(
+        '${AppConfig.backendBaseUrl}/streaming/stop',
+        data: {
+          'streamId': _serverStreamId,
+        },
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $sessionToken',
+          },
+        ),
+      );
+
+      _serverStreamId = null;
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to stop server stream: $e');
+      }
+      return false;
+    }
+  }
+
+  /// Capture a snapshot from the live stream
+  Future<Map<String, dynamic>?> captureSnapshot() async {
+    if (_streamState != StreamState.live && _streamState != StreamState.testing) {
+      _handleError('No active stream to capture snapshot from');
+      return null;
+    }
+
+    try {
+      final sessionToken = await _secureStorage.read(key: 'app_session');
+      if (sessionToken == null) {
+        _handleError('No authentication session found');
+        return null;
+      }
+
+      final localRtmpInput = '${AppConfig.backendBaseUrl.replaceAll('http', 'rtmp')}/live/input';
+
+      final response = await _dio.post(
+        '${AppConfig.backendBaseUrl}/streaming/snapshot',
+        data: {
+          'streamId': _serverStreamId,
+          'rtmpInput': localRtmpInput,
+        },
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $sessionToken',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        return response.data;
+      } else {
+        _handleError('Failed to capture snapshot: ${response.statusMessage}');
+        return null;
+      }
+    } catch (e) {
+      _handleError('Failed to capture snapshot: $e');
+      return null;
+    }
+  }
+
+  /// Start recording the live stream
+  Future<bool> startRecording() async {
+    if (_streamState != StreamState.live && _streamState != StreamState.testing) {
+      _handleError('No active stream to record');
+      return false;
+    }
+
+    if (_isRecording) {
+      _handleError('Recording already in progress');
+      return false;
+    }
+
+    try {
+      final sessionToken = await _secureStorage.read(key: 'app_session');
+      if (sessionToken == null) {
+        _handleError('No authentication session found');
+        return false;
+      }
+
+      final localRtmpInput = '${AppConfig.backendBaseUrl.replaceAll('http', 'rtmp')}/live/input';
+
+      final response = await _dio.post(
+        '${AppConfig.backendBaseUrl}/streaming/recording/start',
+        data: {
+          'streamId': _serverStreamId,
+          'rtmpInput': localRtmpInput,
+          'recordingConfig': {
+            'quality': 'high',
+            'format': 'mp4',
+          },
+        },
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $sessionToken',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        _recordingId = response.data['recordingId'];
+        _isRecording = true;
+        notifyListeners();
+        return true;
+      } else {
+        _handleError('Failed to start recording: ${response.statusMessage}');
+        return false;
+      }
+    } catch (e) {
+      _handleError('Failed to start recording: $e');
+      return false;
+    }
+  }
+
+  /// Stop recording the live stream
+  Future<Map<String, dynamic>?> stopRecording() async {
+    if (!_isRecording || _recordingId == null) {
+      return null;
+    }
+
+    try {
+      final sessionToken = await _secureStorage.read(key: 'app_session');
+      if (sessionToken == null) {
+        _handleError('No authentication session found');
+        return null;
+      }
+
+      final response = await _dio.post(
+        '${AppConfig.backendBaseUrl}/streaming/recording/stop',
+        data: {
+          'recordingId': _recordingId,
+        },
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $sessionToken',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        _isRecording = false;
+        _recordingId = null;
+        notifyListeners();
+        return response.data;
+      } else {
+        _handleError('Failed to stop recording: ${response.statusMessage}');
+        return null;
+      }
+    } catch (e) {
+      _handleError('Failed to stop recording: $e');
+      return null;
+    }
   }
 
   /// Transition YouTube broadcast to specified status

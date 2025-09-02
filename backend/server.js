@@ -8,6 +8,7 @@ const dotenv = require('dotenv');
 
 const authController = require('./src/auth.controller');
 const liveController = require('./src/live.controller');
+const streamingController = require('./src/streaming.controller');
 
 dotenv.config();
 
@@ -83,6 +84,21 @@ app.post('/auth/exchange', verifyToken, authController.exchangeCode);
 app.post('/live/create', verifyToken, liveController.createLiveStream);
 app.post('/live/transition', verifyToken, liveController.transitionBroadcast);
 app.post('/live/end', verifyToken, liveController.endLiveStream);
+
+// Streaming routes
+app.post('/streaming/start', verifyToken, streamingController.startStreamWithWatermark);
+app.post('/streaming/stop', verifyToken, streamingController.stopStream);
+app.post('/streaming/snapshot', verifyToken, streamingController.captureSnapshot);
+app.post('/streaming/recording/start', verifyToken, streamingController.startRecording);
+app.post('/streaming/recording/stop', verifyToken, streamingController.stopRecording);
+app.post('/streaming/watermark/upload', verifyToken, streamingController.uploadWatermark);
+app.get('/streaming/watermarks', verifyToken, streamingController.getWatermarks);
+app.get('/streaming/status', verifyToken, streamingController.getStreamStatus);
+
+// Static file serving for uploads
+app.use('/snapshots', express.static(path.join(__dirname, 'uploads/snapshots')));
+app.use('/recordings', express.static(path.join(__dirname, 'uploads/recordings')));
+app.use('/watermarks', express.static(path.join(__dirname, 'uploads/watermarks')));
 
 // Health check
 app.get('/health', (req, res) => {
