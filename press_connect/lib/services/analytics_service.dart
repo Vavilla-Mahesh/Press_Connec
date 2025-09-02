@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:dio/dio.dart';
+import 'dart:async';
 import '../config.dart';
 
 class StreamAnalytics {
@@ -205,7 +206,7 @@ class AnalyticsService extends ChangeNotifier {
     stopLiveMetricsUpdates();
     
     // Start new periodic updates
-    _liveMetricsTimer = Stream.periodic(interval).listen((_) {
+    _liveMetricsTimer = Timer.periodic(interval, (_) {
       getLiveMetrics(broadcastId);
     });
     
@@ -239,7 +240,7 @@ class AnalyticsService extends ChangeNotifier {
   }
 
   // Private timer for live metrics updates
-  Stream<dynamic>? _liveMetricsTimer;
+  Timer? _liveMetricsTimer;
 
   @override
   void dispose() {

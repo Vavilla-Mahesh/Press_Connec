@@ -4,6 +4,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'dart:async';
 import 'dart:io';
 import 'live_service.dart';
+import 'native_rtmp_channel.dart';
 
 /// Stream quality configurations for adaptive streaming
 enum StreamQuality {
@@ -77,12 +78,17 @@ class DirectStreamingService extends ChangeNotifier {
   // Memory management
   Timer? _performanceMonitor;
   Timer? _networkMonitor;
+  StreamSubscription? _nativeEventsSubscription;
   
   // Fallback options
   bool _adaptiveQualityEnabled = true;
   bool _autoRetryEnabled = true;
   int _retryAttempts = 0;
   final int _maxRetryAttempts = 3;
+  
+  // Keep reference for retry attempts
+  CameraController? _lastCameraController;
+  LiveStreamInfo? _currentStream;
   
   // Getters
   bool get isStreaming => _isStreaming;
@@ -107,6 +113,9 @@ class DirectStreamingService extends ChangeNotifier {
       
       // Initialize network monitoring
       _startNetworkMonitoring();
+      
+      // Set up native streaming events
+      _setupNativeEventListening();
       
       _isInitialized = true;
       notifyListeners();
@@ -137,6 +146,10 @@ class DirectStreamingService extends ChangeNotifier {
 
   /// Attempt streaming with retry logic
   Future<bool> _attemptStreaming(CameraController cameraController, LiveStreamInfo streamInfo) async {
+    // Store references for retry attempts
+    _lastCameraController = cameraController;
+    _currentStream = streamInfo;
+    
     try {
       // Optimize camera settings for current network condition
       await _optimizeCameraSettings(cameraController);
@@ -205,18 +218,16 @@ class DirectStreamingService extends ChangeNotifier {
   /// Platform-specific native RTMP streaming implementation
   Future<bool> _startNativeRTMPStream(CameraController cameraController, LiveStreamInfo streamInfo) async {
     try {
-      // This would be implemented using platform channels to native code
-      // For iOS: use AVFoundation with RTMP libraries like librtmp
-      // For Android: use MediaProjection API with RTMP libraries
+      // Initialize native RTMP if not already done
+      await NativeRTMPChannel.initialize();
       
-      if (Platform.isAndroid) {
-        return await _startAndroidRTMPStream(cameraController, streamInfo);
-      } else if (Platform.isIOS) {
-        return await _startIOSRTMPStream(cameraController, streamInfo);
-      } else {
-        // Web/Desktop fallback (WebRTC or other solution)
-        return await _startWebRTCStream(cameraController, streamInfo);
-      }
+      // Start native RTMP streaming
+      return await NativeRTMPChannel.startStreaming(
+        rtmpUrl: streamInfo.rtmpUrl,
+        quality: _quality.resolution,
+        bitrate: _quality.bitrate,
+        frameRate: _quality.fps,
+      );
     } catch (e) {
       if (kDebugMode) {
         print('Native RTMP stream error: $e');
@@ -227,40 +238,24 @@ class DirectStreamingService extends ChangeNotifier {
 
   /// Android-specific RTMP streaming
   Future<bool> _startAndroidRTMPStream(CameraController cameraController, LiveStreamInfo streamInfo) async {
-    // TODO: Implement Android native RTMP streaming
-    // This would use platform channels to call Android-specific code
-    // using libraries like librtmp or ffmpeg
-    
-    if (kDebugMode) {
-      print('Starting Android RTMP stream (mock implementation)');
-    }
-    
-    // Simulate streaming initialization
-    await Future.delayed(const Duration(milliseconds: 1000));
-    return true;
+    // Use the unified native channel approach
+    return await _startNativeRTMPStream(cameraController, streamInfo);
   }
 
   /// iOS-specific RTMP streaming
   Future<bool> _startIOSRTMPStream(CameraController cameraController, LiveStreamInfo streamInfo) async {
-    // TODO: Implement iOS native RTMP streaming
-    // This would use platform channels to call iOS-specific code
-    // using AVFoundation and RTMP libraries
-    
-    if (kDebugMode) {
-      print('Starting iOS RTMP stream (mock implementation)');
-    }
-    
-    // Simulate streaming initialization
-    await Future.delayed(const Duration(milliseconds: 1000));
-    return true;
+    // Use the unified native channel approach
+    return await _startNativeRTMPStream(cameraController, streamInfo);
   }
 
   /// Web/Desktop RTMP streaming fallback
   Future<bool> _startWebRTCStream(CameraController cameraController, LiveStreamInfo streamInfo) async {
-    // TODO: Implement WebRTC-based streaming for web/desktop
+    // For web/desktop, we could implement WebRTC to RTMP bridge
+    // or use a different streaming protocol
     
     if (kDebugMode) {
-      print('Starting WebRTC stream (mock implementation)');
+      print('Starting WebRTC stream (fallback implementation)');
+      print('Note: For production web deployment, consider implementing WebRTC to RTMP bridge');
     }
     
     // Simulate streaming initialization
@@ -291,28 +286,27 @@ class DirectStreamingService extends ChangeNotifier {
 
   /// Stop native RTMP stream
   Future<void> _stopNativeRTMPStream() async {
-    // Platform-specific cleanup
-    if (Platform.isAndroid) {
-      await _stopAndroidRTMPStream();
-    } else if (Platform.isIOS) {
-      await _stopIOSRTMPStream();
-    } else {
-      await _stopWebRTCStream();
+    try {
+      await NativeRTMPChannel.stopStreaming();
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error stopping native RTMP: $e');
+      }
     }
   }
 
   Future<void> _stopAndroidRTMPStream() async {
-    // TODO: Stop Android RTMP stream
-    await Future.delayed(const Duration(milliseconds: 200));
+    // Use unified approach
+    await _stopNativeRTMPStream();
   }
 
   Future<void> _stopIOSRTMPStream() async {
-    // TODO: Stop iOS RTMP stream
-    await Future.delayed(const Duration(milliseconds: 200));
+    // Use unified approach
+    await _stopNativeRTMPStream();
   }
 
   Future<void> _stopWebRTCStream() async {
-    // TODO: Stop WebRTC stream
+    // Web/Desktop cleanup
     await Future.delayed(const Duration(milliseconds: 200));
   }
 
@@ -336,6 +330,93 @@ class DirectStreamingService extends ChangeNotifier {
       if (kDebugMode) {
         print('Camera optimization failed: $e');
       }
+    }
+  }
+
+  /// Set up native streaming event listening
+  void _setupNativeEventListening() {
+    _nativeEventsSubscription = NativeRTMPChannel.streamingEvents.listen(
+      (event) {
+        _handleNativeStreamingEvent(event);
+      },
+      onError: (error) {
+        if (kDebugMode) {
+          print('Native streaming event error: $error');
+        }
+      },
+    );
+  }
+
+  /// Handle native streaming events
+  void _handleNativeStreamingEvent(Map<String, dynamic> event) {
+    final eventType = event['type'] as String?;
+    
+    switch (eventType) {
+      case 'connection_status':
+        final connected = event['connected'] as bool? ?? false;
+        if (!connected && _isStreaming) {
+          _handleConnectionLoss();
+        }
+        break;
+        
+      case 'stats_update':
+        _updateNativeStats(event);
+        break;
+        
+      case 'error':
+        final error = event['error'] as String? ?? 'Unknown native error';
+        _handleNativeError(error);
+        break;
+        
+      case 'quality_changed':
+        final newQuality = event['quality'] as String?;
+        if (newQuality != null) {
+          if (kDebugMode) {
+            print('Native quality changed to: $newQuality');
+          }
+        }
+        break;
+    }
+    
+    notifyListeners();
+  }
+
+  /// Handle connection loss with auto-retry
+  void _handleConnectionLoss() {
+    if (_autoRetryEnabled && _retryAttempts < _maxRetryAttempts) {
+      _retryAttempts++;
+      if (kDebugMode) {
+        print('Connection lost, attempting retry $_retryAttempts/$_maxRetryAttempts');
+      }
+      
+      // Try to reconnect after a delay
+      Future.delayed(Duration(seconds: _retryAttempts * 2), () {
+        if (_isStreaming && _currentStream != null) {
+          // Attempt to restart streaming
+          _attemptStreaming(_lastCameraController!, _currentStream!);
+        }
+      });
+    } else {
+      _setError('Connection lost and max retries exceeded');
+      _stopStreaming();
+    }
+  }
+
+  /// Update performance stats from native channel
+  void _updateNativeStats(Map<String, dynamic> stats) {
+    _droppedFrames = stats['droppedFrames'] as int? ?? _droppedFrames;
+    _averageFrameRate = (stats['frameRate'] as num?)?.toDouble() ?? _averageFrameRate;
+    _uploadBandwidth = stats['bandwidth'] as int? ?? _uploadBandwidth;
+  }
+
+  /// Handle native streaming errors
+  void _handleNativeError(String error) {
+    if (kDebugMode) {
+      print('Native streaming error: $error');
+    }
+    
+    if (_isStreaming) {
+      _setError('Native streaming error: $error');
     }
   }
 
@@ -420,8 +501,19 @@ class DirectStreamingService extends ChangeNotifier {
     
     _quality = newQuality;
     
-    // In a real implementation, this would adjust the encoder settings
-    // without stopping the stream
+    // Update quality through native channel if streaming
+    if (_isStreaming) {
+      try {
+        await NativeRTMPChannel.updateQuality(
+          quality: _quality.resolution,
+          bitrate: _quality.bitrate,
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          print('Failed to update quality dynamically: $e');
+        }
+      }
+    }
     
     notifyListeners();
   }
@@ -489,6 +581,7 @@ class DirectStreamingService extends ChangeNotifier {
     stopStreaming();
     _networkMonitor?.cancel();
     _performanceMonitor?.cancel();
+    _nativeEventsSubscription?.cancel();
     super.dispose();
   }
 }
