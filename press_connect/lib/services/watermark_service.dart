@@ -49,6 +49,11 @@ class WatermarkService extends ChangeNotifier {
   }
 
   // Configuration for RTMP broadcaster watermark
+  // NOTE: This configuration is for UI preview only.
+  // The current rtmp_broadcaster package streams camera feed directly to RTMP
+  // without UI overlay composition. For production use, implement server-side
+  // watermark processing using FFmpeg or use a different streaming approach
+  // that supports client-side video composition.
   Map<String, dynamic> getRTMPWatermarkConfig() {
     return {
       'enabled': _isEnabled,
@@ -56,6 +61,7 @@ class WatermarkService extends ChangeNotifier {
       'opacity': _opacity,
       'position': 'center',
       'scale': 'cover',
+      'note': 'UI preview only - server-side processing required for stream watermark',
     };
   }
 }

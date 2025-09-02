@@ -315,6 +315,34 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                               tooltip: 'Take Snapshot',
                             ),
                           ),
+                          
+                          const SizedBox(width: 12),
+                          
+                          // Recording Button
+                          Consumer<LiveService>(
+                            builder: (context, liveService, child) {
+                              return Container(
+                                decoration: BoxDecoration(
+                                  gradient: liveService.isRecording
+                                      ? LinearGradient(
+                                          colors: [Colors.red, Colors.red.shade700],
+                                        )
+                                      : ThemeService.accentGradient,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: IconButton(
+                                  onPressed: (liveService.isLive || liveService.isTesting)
+                                      ? _toggleRecording
+                                      : null,
+                                  icon: Icon(
+                                    liveService.isRecording ? Icons.stop : Icons.fiber_manual_record,
+                                    color: Colors.white,
+                                  ),
+                                  tooltip: liveService.isRecording ? 'Stop Recording' : 'Start Recording',
+                                ),
+                              );
+                            },
+                          ),
                         ],
                       ),
                       
@@ -449,6 +477,72 @@ class _GoLiveScreenState extends State<GoLiveScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Snapshot error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _toggleRecording() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Camera not ready')),
+      );
+      return;
+    }
+
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    
+    try {
+      if (liveService.isRecording) {
+        // Stop recording
+        final filePath = await liveService.stopRecording(
+          cameraController: _cameraController!,
+        );
+        
+        if (filePath != null && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Recording saved: ${filePath.split('/').last}'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to stop recording: ${liveService.errorMessage ?? "Unknown error"}'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } else {
+        // Start recording
+        final success = await liveService.startRecording(
+          cameraController: _cameraController!,
+        );
+        
+        if (success && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Recording started'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to start recording: ${liveService.errorMessage ?? "Unknown error"}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Recording error: $e'),
             backgroundColor: Colors.red,
           ),
         );

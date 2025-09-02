@@ -45,11 +45,15 @@ class LiveService extends ChangeNotifier {
   StreamState _streamState = StreamState.idle;
   String? _errorMessage;
   LiveStreamInfo? _currentStream;
+  bool _isRecording = false;
+  String? _recordingId;
   
   StreamState get streamState => _streamState;
   String? get errorMessage => _errorMessage;
   LiveStreamInfo? get currentStream => _currentStream;
   RTMPStreamingService get rtmpService => _rtmpService;
+  bool get isRecording => _isRecording;
+  String? get recordingId => _recordingId;
   
   bool get isLive => _streamState == StreamState.live;
   bool get isTesting => _streamState == StreamState.testing;
@@ -182,6 +186,8 @@ class LiveService extends ChangeNotifier {
       }
 
       _currentStream = null;
+      _isRecording = false;
+      _recordingId = null;
       _setState(StreamState.idle);
       return true;
     } catch (e) {
@@ -192,6 +198,8 @@ class LiveService extends ChangeNotifier {
 
   void reset() {
     _currentStream = null;
+    _isRecording = false;
+    _recordingId = null;
     _setState(StreamState.idle);
     _errorMessage = null;
   }
@@ -284,12 +292,96 @@ class LiveService extends ChangeNotifier {
       return false;
     }
 
-    return await _rtmpService.startRecording(cameraController: cameraController);
+    if (_isRecording) {
+      _handleError('Recording already in progress');
+      return false;
+    }
+
+    try {
+      // Start local recording
+      final localSuccess = await _rtmpService.startRecording(cameraController: cameraController);
+      if (!localSuccess) {
+        _handleError('Failed to start local recording: ${_rtmpService.errorMessage}');
+        return false;
+      }
+
+      // Notify backend about recording start
+      final sessionToken = await _secureStorage.read(key: 'app_session');
+      if (sessionToken != null && _currentStream?.broadcastId != null) {
+        try {
+          final response = await _dio.post(
+            '${AppConfig.backendBaseUrl}/live/recording/start',
+            data: {
+              'broadcastId': _currentStream!.broadcastId,
+            },
+            options: Options(
+              headers: {
+                'Authorization': 'Bearer $sessionToken',
+              },
+            ),
+          );
+          
+          if (response.statusCode == 200) {
+            _recordingId = response.data['recordingId'];
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('Backend recording notification failed: $e');
+          }
+          // Continue with local recording even if backend notification fails
+        }
+      }
+
+      _isRecording = true;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _handleError('Failed to start recording: $e');
+      return false;
+    }
   }
 
   /// Stop recording and return the file path
   Future<String?> stopRecording({required CameraController cameraController}) async {
-    return await _rtmpService.stopRecording(cameraController: cameraController);
+    if (!_isRecording) {
+      return null;
+    }
+
+    try {
+      // Stop local recording
+      final filePath = await _rtmpService.stopRecording(cameraController: cameraController);
+
+      // Notify backend about recording stop
+      final sessionToken = await _secureStorage.read(key: 'app_session');
+      if (sessionToken != null && _recordingId != null) {
+        try {
+          await _dio.post(
+            '${AppConfig.backendBaseUrl}/live/recording/stop',
+            data: {
+              'recordingId': _recordingId,
+            },
+            options: Options(
+              headers: {
+                'Authorization': 'Bearer $sessionToken',
+              },
+            ),
+          );
+        } catch (e) {
+          if (kDebugMode) {
+            print('Backend recording stop notification failed: $e');
+          }
+          // Continue even if backend notification fails
+        }
+      }
+
+      _isRecording = false;
+      _recordingId = null;
+      notifyListeners();
+      return filePath;
+    } catch (e) {
+      _handleError('Failed to stop recording: $e');
+      return null;
+    }
   }
 
   void _setState(StreamState state) {

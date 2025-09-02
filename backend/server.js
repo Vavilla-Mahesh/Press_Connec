@@ -35,7 +35,8 @@ try {
       redirectUri: localConfig.oauth.redirectUri
     },
     jwt: {
-      secret: process.env.JWT_SECRET || localConfig.jwt.secret
+      secret: process.env.JWT_SECRET || localConfig.jwt.secret,
+      expiresIn: localConfig.jwt.expiresIn || '24h'
     }
   };
 } catch (error) {

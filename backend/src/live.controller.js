@@ -80,13 +80,19 @@ const createLiveStream = async (req, res) => {
       streamId: stream.id
     });
 
-    // Return stream information
+    // Return stream information with watermark processing note
     res.json({
       success: true,
       broadcastId: broadcast.id,
       streamId: stream.id,
       ingestUrl: stream.cdn.ingestionInfo.ingestionAddress,
-      streamKey: stream.cdn.ingestionInfo.streamName
+      streamKey: stream.cdn.ingestionInfo.streamName,
+      note: 'For watermark overlay, implement RTMP relay with FFmpeg processing',
+      watermarkSupport: {
+        clientSidePreview: true,
+        serverSideProcessing: false, // Would be true with FFmpeg implementation
+        recommendedApproach: 'Set up RTMP relay server with FFmpeg filter_complex for watermark overlay'
+      }
     });
 
   } catch (error) {
