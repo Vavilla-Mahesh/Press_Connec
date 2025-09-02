@@ -6,6 +6,13 @@ const tokenStore = require('./token.store');
 const createLiveStream = async (req, res) => {
   try {
     const username = req.user.username;
+    const {
+      title,
+      description,
+      quality = '720p',
+      visibility = 'public',
+      status = 'live'
+    } = req.body;
 
     // Get stored tokens for this user
     let tokens = await tokenStore.getTokens(username);
@@ -34,21 +41,46 @@ const createLiveStream = async (req, res) => {
       await tokenStore.storeTokens(username, tokens);
     }
 
+    // Validate input parameters
+    const validQualities = ['720p', '1080p'];
+    const validVisibilities = ['public', 'unlisted', 'private'];
+    const validStatuses = ['live', 'scheduled', 'offline'];
+
+    if (!validQualities.includes(quality)) {
+      return res.status(400).json({ error: 'Invalid quality. Use 720p or 1080p' });
+    }
+
+    if (!validVisibilities.includes(visibility)) {
+      return res.status(400).json({ error: 'Invalid visibility. Use public, unlisted, or private' });
+    }
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Use live, scheduled, or offline' });
+    }
+
     // Get YouTube API instance
     const youtube = googleOAuth.getYouTubeAPI(tokens.access_token);
+
+    // Configure stream settings based on quality
+    const streamSettings = {
+      '720p': { resolution: '720p', frameRate: '30fps' },
+      '1080p': { resolution: '1080p', frameRate: '30fps' }
+    };
+
+    const currentSettings = streamSettings[quality];
 
     // Create live broadcast
     const broadcastResponse = await youtube.liveBroadcasts.insert({
       part: ['snippet', 'status'],
       requestBody: {
         snippet: {
-          title: `Press Connect Live - ${new Date().toISOString()}`,
-          description: 'Live stream from Press Connect app',
+          title: title || `Press Connect Live - ${new Date().toISOString()}`,
+          description: description || 'Live stream from Press Connect app',
           scheduledStartTime: new Date().toISOString(),
           scheduledEndTime: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString() // 4 hours
         },
         status: {
-          privacyStatus: 'public',
+          privacyStatus: visibility,
           selfDeclaredMadeForKids: false
         }
       }
@@ -64,9 +96,9 @@ const createLiveStream = async (req, res) => {
           title: `Press Connect Stream - ${new Date().toISOString()}`
         },
         cdn: {
-          frameRate: '30fps',
+          frameRate: currentSettings.frameRate,
           ingestionType: 'rtmp',
-          resolution: '720p'
+          resolution: currentSettings.resolution
         }
       }
     });
@@ -86,7 +118,12 @@ const createLiveStream = async (req, res) => {
       broadcastId: broadcast.id,
       streamId: stream.id,
       ingestUrl: stream.cdn.ingestionInfo.ingestionAddress,
-      streamKey: stream.cdn.ingestionInfo.streamName
+      streamKey: stream.cdn.ingestionInfo.streamName,
+      quality: quality,
+      visibility: visibility,
+      status: status,
+      title: broadcast.snippet.title,
+      watchUrl: `https://youtu.be/${broadcast.id}`
     });
 
   } catch (error) {

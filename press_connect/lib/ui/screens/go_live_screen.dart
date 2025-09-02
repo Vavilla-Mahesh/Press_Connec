@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
 import '../../services/live_service.dart';
-import '../../services/watermark_service.dart';
 import '../../services/theme_service.dart';
 import '../widgets/animated_gradient_background.dart';
 import '../widgets/glass_card.dart';
@@ -21,6 +20,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   bool _isCameraInitialized = false;
+  bool _isRecording = false;
   List<CameraDescription> _cameras = [];
 
   @override
@@ -90,7 +90,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
         title: const Text('Go Live'),
         actions: [
           IconButton(
-            onPressed: _showSettings,
+            onPressed: _showStreamSettings,
             icon: const Icon(Icons.settings),
           ),
         ],
@@ -131,30 +131,6 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                             ),
                           ),
                         
-                        // Watermark Overlay
-                        Consumer<WatermarkService>(
-                          builder: (context, watermarkService, child) {
-                            if (!watermarkService.isEnabled) {
-                              return const SizedBox.shrink();
-                            }
-                            
-                            return Positioned.fill(
-                              child: AnimatedOpacity(
-                                opacity: watermarkService.alphaValue,
-                                duration: const Duration(milliseconds: 200),
-                                child: Container(
-                                  decoration: const BoxDecoration(
-                                    image: DecorationImage(
-                                      image: AssetImage('assets/watermarks/default_watermark.png'),
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        
                         // Stream Status Indicator
                         Consumer<LiveService>(
                           builder: (context, liveService, child) {
@@ -170,11 +146,6 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                               case StreamState.preparing:
                                 statusText = 'PREPARING';
                                 statusColor = Colors.orange;
-                                break;
-                              case StreamState.testing:
-                                statusText = 'TEST MODE';
-                                statusColor = Colors.blue;
-                                shouldPulse = true;
                                 break;
                               case StreamState.live:
                                 statusText = 'LIVE';
@@ -210,6 +181,22 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                             );
                           },
                         ),
+
+                        // Recording Indicator
+                        if (_isRecording)
+                          Positioned(
+                            top: 16,
+                            right: 16,
+                            child: AnimatedBuilder(
+                              animation: _pulseAnimation,
+                              builder: (context, child) {
+                                return Transform.scale(
+                                  scale: _pulseAnimation.value,
+                                  child: _buildStatusBadge('REC', Colors.red),
+                                );
+                              },
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -223,9 +210,10 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     children: [
-                      // Watermark Opacity Slider
-                      Consumer<WatermarkService>(
-                        builder: (context, watermarkService, child) {
+                      // Stream Configuration Display
+                      Consumer<LiveService>(
+                        builder: (context, liveService, child) {
+                          final config = liveService.configuration;
                           return GlassCard(
                             padding: const EdgeInsets.all(20),
                             child: Column(
@@ -233,25 +221,23 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                               children: [
                                 Row(
                                   children: [
-                                    const Icon(Icons.opacity),
+                                    const Icon(Icons.video_settings),
                                     const SizedBox(width: 8),
                                     const Text(
-                                      'Watermark Opacity',
+                                      'Stream Configuration',
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                    const Spacer(),
-                                    Text('${watermarkService.opacityPercentage}%'),
                                   ],
                                 ),
                                 const SizedBox(height: 12),
-                                Slider(
-                                  value: watermarkService.opacity,
-                                  min: 0.0,
-                                  max: 1.0,
-                                  divisions: 100,
-                                  onChanged: watermarkService.setOpacity,
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text('Quality: ${config.quality.value}'),
+                                    Text('Visibility: ${config.visibility.value}'),
+                                  ],
                                 ),
                               ],
                             ),
@@ -261,9 +247,10 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                       
                       const SizedBox(height: 24),
                       
-                      // Action Buttons
+                      // Action Buttons Row
                       Row(
                         children: [
+                          // Main Go Live Button
                           Expanded(
                             child: Consumer<LiveService>(
                               builder: (context, liveService, child) {
@@ -273,7 +260,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                                       : liveService.canStopStream
                                           ? _handleStopStream
                                           : null,
-                                  gradient: (liveService.isLive || liveService.isTesting)
+                                  gradient: liveService.isLive
                                       ? LinearGradient(
                                           colors: [Colors.red, Colors.red.shade700],
                                         )
@@ -300,19 +287,70 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                               },
                             ),
                           ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      // Media Capture Buttons
+                      Row(
+                        children: [
+                          // Snapshot Button
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: ThemeService.accentGradient,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: MaterialButton(
+                                onPressed: _takeSnapshot,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                child: const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.camera_alt, color: Colors.white),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Snapshot',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                           
                           const SizedBox(width: 16),
                           
-                          // Action Buttons (Snapshot, Record)
-                          Container(
-                            decoration: BoxDecoration(
-                              gradient: ThemeService.accentGradient,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: IconButton(
-                              onPressed: _takeSnapshot,
-                              icon: const Icon(Icons.camera_alt, color: Colors.white),
-                              tooltip: 'Take Snapshot',
+                          // Video Recording Button
+                          Expanded(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: _isRecording 
+                                  ? LinearGradient(
+                                      colors: [Colors.red, Colors.red.shade700],
+                                    )
+                                  : ThemeService.accentGradient,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: MaterialButton(
+                                onPressed: _isRecording ? _stopVideoRecording : _startVideoRecording,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      _isRecording ? Icons.stop : Icons.videocam,
+                                      color: Colors.white,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _isRecording ? 'Stop' : 'Record',
+                                      style: const TextStyle(color: Colors.white),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -348,10 +386,11 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     );
   }
 
-  void _showSettings() {
+  void _showStreamSettings() {
     showModalBottomSheet(
       context: context,
-      builder: (context) => const SettingsBottomSheet(),
+      isScrollControlled: true,
+      builder: (context) => const StreamSettingsBottomSheet(),
     );
   }
 
@@ -364,7 +403,6 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     }
 
     final liveService = Provider.of<LiveService>(context, listen: false);
-    final watermarkService = Provider.of<WatermarkService>(context, listen: false);
     
     try {
       // First create the stream
@@ -378,11 +416,8 @@ class _GoLiveScreenState extends State<GoLiveScreen>
         return;
       }
       
-      // Then start streaming with camera and watermark
-      final success = await liveService.startStream(
-        cameraController: _cameraController!,
-        watermarkService: watermarkService,
-      );
+      // Then start streaming
+      final success = await liveService.startStream();
       
       if (success) {
         if (mounted) {
@@ -411,14 +446,85 @@ class _GoLiveScreenState extends State<GoLiveScreen>
 
   void _handleStopStream() async {
     final liveService = Provider.of<LiveService>(context, listen: false);
-    await liveService.stopStream(cameraController: _cameraController);
+    await liveService.stopStream();
   }
 
-  void _takeSnapshot() {
-    // Implementation for taking snapshots
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Snapshot taken!')),
-    );
+  void _takeSnapshot() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Camera not ready')),
+      );
+      return;
+    }
+
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    final success = await liveService.captureSnapshot(_cameraController!);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? 'Snapshot saved to gallery!' : 'Failed to save snapshot'),
+          backgroundColor: success ? Colors.green : Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _startVideoRecording() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Camera not ready')),
+      );
+      return;
+    }
+
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    final success = await liveService.startVideoRecording(_cameraController!);
+    
+    if (success) {
+      setState(() {
+        _isRecording = true;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Video recording started'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to start video recording'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _stopVideoRecording() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      return;
+    }
+
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    final success = await liveService.stopVideoRecording(_cameraController!);
+    
+    setState(() {
+      _isRecording = false;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success ? 'Video saved to gallery!' : 'Failed to save video'),
+          backgroundColor: success ? Colors.green : Colors.red,
+        ),
+      );
+    }
   }
 
   String _getButtonText(StreamState state) {
@@ -428,8 +534,6 @@ class _GoLiveScreenState extends State<GoLiveScreen>
       case StreamState.preparing:
       case StreamState.stopping:
         return 'Loading...';
-      case StreamState.testing:
-        return 'Stop Test';
       case StreamState.live:
         return 'Stop Live';
       case StreamState.error:
@@ -480,42 +584,173 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   }
 }
 
-class SettingsBottomSheet extends StatelessWidget {
-  const SettingsBottomSheet({super.key});
+class StreamSettingsBottomSheet extends StatefulWidget {
+  const StreamSettingsBottomSheet({super.key});
+
+  @override
+  State<StreamSettingsBottomSheet> createState() => _StreamSettingsBottomSheetState();
+}
+
+class _StreamSettingsBottomSheetState extends State<StreamSettingsBottomSheet> {
+  late TextEditingController _titleController;
+  late TextEditingController _descriptionController;
+  late StreamQuality _selectedQuality;
+  late StreamVisibility _selectedVisibility;
+  late StreamStatus _selectedStatus;
+
+  @override
+  void initState() {
+    super.initState();
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    final config = liveService.configuration;
+    
+    _titleController = TextEditingController(text: config.title ?? '');
+    _descriptionController = TextEditingController(text: config.description ?? '');
+    _selectedQuality = config.quality;
+    _selectedVisibility = config.visibility;
+    _selectedStatus = config.status;
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Settings',
+            'Stream Settings',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 24),
           
-          Consumer<WatermarkService>(
-            builder: (context, watermarkService, child) {
-              return SwitchListTile(
-                title: const Text('Enable Watermark'),
-                subtitle: const Text('Show watermark overlay on stream'),
-                value: watermarkService.isEnabled,
-                onChanged: (value) => watermarkService.setEnabled(value),
-              );
-            },
+          // Title
+          TextField(
+            controller: _titleController,
+            decoration: const InputDecoration(
+              labelText: 'Stream Title',
+              hintText: 'Enter stream title (optional)',
+              border: OutlineInputBorder(),
+            ),
+            maxLength: 100,
           ),
-          
           const SizedBox(height: 16),
           
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+          // Description
+          TextField(
+            controller: _descriptionController,
+            decoration: const InputDecoration(
+              labelText: 'Description',
+              hintText: 'Enter stream description (optional)',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 3,
+            maxLength: 500,
+          ),
+          const SizedBox(height: 16),
+          
+          // Quality Dropdown
+          DropdownButtonFormField<StreamQuality>(
+            value: _selectedQuality,
+            decoration: const InputDecoration(
+              labelText: 'Stream Quality',
+              border: OutlineInputBorder(),
+            ),
+            items: StreamQuality.values.map((quality) {
+              return DropdownMenuItem(
+                value: quality,
+                child: Text(quality.value),
+              );
+            }).toList(),
+            onChanged: (quality) {
+              if (quality != null) {
+                setState(() {
+                  _selectedQuality = quality;
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 16),
+          
+          // Visibility Dropdown
+          DropdownButtonFormField<StreamVisibility>(
+            value: _selectedVisibility,
+            decoration: const InputDecoration(
+              labelText: 'Visibility',
+              border: OutlineInputBorder(),
+            ),
+            items: StreamVisibility.values.map((visibility) {
+              return DropdownMenuItem(
+                value: visibility,
+                child: Text(visibility.value),
+              );
+            }).toList(),
+            onChanged: (visibility) {
+              if (visibility != null) {
+                setState(() {
+                  _selectedVisibility = visibility;
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 24),
+          
+          // Action Buttons
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _saveSettings,
+                  child: const Text('Save'),
+                ),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  void _saveSettings() {
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    
+    final config = StreamConfiguration(
+      title: _titleController.text.isEmpty ? null : _titleController.text,
+      description: _descriptionController.text.isEmpty ? null : _descriptionController.text,
+      quality: _selectedQuality,
+      visibility: _selectedVisibility,
+      status: _selectedStatus,
+    );
+    
+    liveService.updateConfiguration(config);
+    Navigator.pop(context);
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Settings saved!'),
+        backgroundColor: Colors.green,
       ),
     );
   }
