@@ -414,11 +414,46 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     await liveService.stopStream(cameraController: _cameraController);
   }
 
-  void _takeSnapshot() {
-    // Implementation for taking snapshots
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Snapshot taken!')),
-    );
+  void _takeSnapshot() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Camera not ready')),
+      );
+      return;
+    }
+
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    
+    try {
+      final snapshotPath = await liveService.takeSnapshot(
+        cameraController: _cameraController!,
+      );
+      
+      if (snapshotPath != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Snapshot saved: ${snapshotPath.split('/').last}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to take snapshot: ${liveService.errorMessage ?? "Unknown error"}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Snapshot error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   String _getButtonText(StreamState state) {

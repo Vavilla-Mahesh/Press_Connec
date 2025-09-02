@@ -48,16 +48,6 @@ class WatermarkService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Generate FFmpeg filter string for watermark overlay
-  String generateFFmpegFilter() {
-    if (!_isEnabled) {
-      return '';
-    }
-
-    return '[1:v]scale=iw:ih,format=rgba,colorchannelmixer=aa=$alphaValue[wm];'
-           '[0:v][wm]overlay=(W-w)/2:(H-h)/2:enable=always';
-  }
-
   // Configuration for RTMP broadcaster watermark
   Map<String, dynamic> getRTMPWatermarkConfig() {
     return {

@@ -191,8 +191,79 @@ const transitionBroadcast = async (req, res) => {
   }
 };
 
+const takeSnapshot = async (req, res) => {
+  try {
+    const { broadcastId } = req.body;
+    const username = req.user.username;
+    
+    // For now, return success as snapshot is handled client-side
+    // In a production environment, this could trigger server-side snapshot
+    res.json({
+      success: true,
+      message: 'Snapshot request acknowledged',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Take snapshot error:', error);
+    res.status(500).json({
+      error: 'Failed to take snapshot',
+      details: error.message
+    });
+  }
+};
+
+const startRecording = async (req, res) => {
+  try {
+    const { broadcastId } = req.body;
+    const username = req.user.username;
+    
+    // For now, return success as recording is handled client-side
+    // In a production environment, this could start server-side recording
+    res.json({
+      success: true,
+      message: 'Recording started',
+      recordingId: `rec_${broadcastId}_${Date.now()}`,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Start recording error:', error);
+    res.status(500).json({
+      error: 'Failed to start recording',
+      details: error.message
+    });
+  }
+};
+
+const stopRecording = async (req, res) => {
+  try {
+    const { recordingId } = req.body;
+    const username = req.user.username;
+    
+    // For now, return success as recording is handled client-side
+    // In a production environment, this could stop server-side recording
+    res.json({
+      success: true,
+      message: 'Recording stopped',
+      recordingId: recordingId,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Stop recording error:', error);
+    res.status(500).json({
+      error: 'Failed to stop recording',
+      details: error.message
+    });
+  }
+};
+
 module.exports = {
   createLiveStream,
   endLiveStream,
-  transitionBroadcast
+  transitionBroadcast,
+  takeSnapshot,
+  startRecording,
+  stopRecording
 };

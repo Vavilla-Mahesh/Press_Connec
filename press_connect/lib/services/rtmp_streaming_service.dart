@@ -191,18 +191,87 @@ class RTMPStreamingService extends ChangeNotifier {
     return statuses.values.every((status) => status == PermissionStatus.granted);
   }
   
+  /// Take a snapshot during streaming
+  Future<String?> takeSnapshot({required CameraController cameraController}) async {
+    if (!_isStreaming) {
+      _setError('Cannot take snapshot: not streaming');
+      return null;
+    }
+
+    try {
+      // Take a picture using the camera controller
+      final image = await cameraController.takePicture();
+      
+      if (kDebugMode) {
+        print('Snapshot taken: ${image.path}');
+      }
+      
+      return image.path;
+    } catch (e) {
+      _setError('Failed to take snapshot: $e');
+      if (kDebugMode) {
+        print('Snapshot error: $e');
+      }
+      return null;
+    }
+  }
+
+  /// Start recording the stream (local recording)
+  Future<bool> startRecording({required CameraController cameraController}) async {
+    if (!_isStreaming) {
+      _setError('Cannot start recording: not streaming');
+      return false;
+    }
+
+    try {
+      // Start video recording
+      await cameraController.startVideoRecording();
+      
+      if (kDebugMode) {
+        print('Recording started');
+      }
+      
+      return true;
+    } catch (e) {
+      _setError('Failed to start recording: $e');
+      if (kDebugMode) {
+        print('Recording start error: $e');
+      }
+      return false;
+    }
+  }
+
+  /// Stop recording and return the file path
+  Future<String?> stopRecording({required CameraController cameraController}) async {
+    try {
+      final file = await cameraController.stopVideoRecording();
+      
+      if (kDebugMode) {
+        print('Recording stopped: ${file.path}');
+      }
+      
+      return file.path;
+    } catch (e) {
+      _setError('Failed to stop recording: $e');
+      if (kDebugMode) {
+        print('Recording stop error: $e');
+      }
+      return null;
+    }
+  }
+  
   void _stopStreaming() {
     _isStreaming = false;
     notifyListeners();
   }
-  
+
   void _setError(String? error) {
     _errorMessage = error;
     if (error != null) {
       notifyListeners();
     }
   }
-  
+
   @override
   void dispose() {
     stopStreaming();

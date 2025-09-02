@@ -267,6 +267,31 @@ class LiveService extends ChangeNotifier {
     }
   }
 
+  /// Take a snapshot during live streaming
+  Future<String?> takeSnapshot({required CameraController cameraController}) async {
+    if (!isLive && !isTesting) {
+      _handleError('Cannot take snapshot: not streaming');
+      return null;
+    }
+
+    return await _rtmpService.takeSnapshot(cameraController: cameraController);
+  }
+
+  /// Start recording the live stream
+  Future<bool> startRecording({required CameraController cameraController}) async {
+    if (!isLive && !isTesting) {
+      _handleError('Cannot start recording: not streaming');
+      return false;
+    }
+
+    return await _rtmpService.startRecording(cameraController: cameraController);
+  }
+
+  /// Stop recording and return the file path
+  Future<String?> stopRecording({required CameraController cameraController}) async {
+    return await _rtmpService.stopRecording(cameraController: cameraController);
+  }
+
   void _setState(StreamState state) {
     _streamState = state;
     notifyListeners();

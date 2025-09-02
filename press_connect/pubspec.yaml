@@ -48,7 +48,6 @@ dependencies:
 
   # Live Streaming & Media
   rtmp_broadcaster: ^2.3.4
-  ffmpeg_kit_flutter_new: ^3.2.0
   camera: ^0.10.5+9
   permission_handler: ^11.3.1
 

@@ -83,6 +83,9 @@ app.post('/auth/exchange', verifyToken, authController.exchangeCode);
 app.post('/live/create', verifyToken, liveController.createLiveStream);
 app.post('/live/transition', verifyToken, liveController.transitionBroadcast);
 app.post('/live/end', verifyToken, liveController.endLiveStream);
+app.post('/live/snapshot', verifyToken, liveController.takeSnapshot);
+app.post('/live/recording/start', verifyToken, liveController.startRecording);
+app.post('/live/recording/stop', verifyToken, liveController.stopRecording);
 
 // Health check
 app.get('/health', (req, res) => {
