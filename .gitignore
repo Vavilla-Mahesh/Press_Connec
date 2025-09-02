@@ -1,0 +1,55 @@
+# Flutter
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backend
+backend/node_modules/
+backend/tokens.json
+backend/.env
+backend/local.config.json
+backend/.firebase/
+backend/.firebaserc
+backend/firebase-debug.log
+backend/google-services.json
+backend/tokens.json
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+
+# Sensitive configuration (replace with your actual values)
+backend/local.config.json.example
+
+# Build artifacts
+android/app/build/
+ios/build/
+web/build/
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+# Generated files
+*.g.dart
+*.freezed.dart
+# Coverage
+coverage/
+
+# Crashes
+*.crash
