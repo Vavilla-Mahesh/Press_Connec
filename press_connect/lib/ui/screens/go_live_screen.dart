@@ -155,63 +155,58 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                           },
                         ),
                         
-                        // Live Indicator
+                        // Stream Status Indicator
                         Consumer<LiveService>(
                           builder: (context, liveService, child) {
-                            if (!liveService.isLive) {
+                            if (liveService.streamState == StreamState.idle) {
                               return const SizedBox.shrink();
+                            }
+                            
+                            String statusText;
+                            Color statusColor;
+                            bool shouldPulse = false;
+                            
+                            switch (liveService.streamState) {
+                              case StreamState.preparing:
+                                statusText = 'PREPARING';
+                                statusColor = Colors.orange;
+                                break;
+                              case StreamState.testing:
+                                statusText = 'TEST MODE';
+                                statusColor = Colors.blue;
+                                shouldPulse = true;
+                                break;
+                              case StreamState.live:
+                                statusText = 'LIVE';
+                                statusColor = Colors.red;
+                                shouldPulse = true;
+                                break;
+                              case StreamState.stopping:
+                                statusText = 'STOPPING';
+                                statusColor = Colors.grey;
+                                break;
+                              case StreamState.error:
+                                statusText = 'ERROR';
+                                statusColor = Colors.red.shade800;
+                                break;
+                              default:
+                                return const SizedBox.shrink();
                             }
                             
                             return Positioned(
                               top: 16,
                               left: 16,
-                              child: AnimatedBuilder(
-                                animation: _pulseAnimation,
-                                builder: (context, child) {
-                                  return Transform.scale(
-                                    scale: _pulseAnimation.value,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red,
-                                        borderRadius: BorderRadius.circular(20),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.red.withOpacity(0.5),
-                                            blurRadius: 10,
-                                            spreadRadius: 2,
-                                          ),
-                                        ],
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Container(
-                                            width: 8,
-                                            height: 8,
-                                            decoration: const BoxDecoration(
-                                              color: Colors.white,
-                                              shape: BoxShape.circle,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          const Text(
-                                            'LIVE',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
+                              child: shouldPulse
+                                  ? AnimatedBuilder(
+                                      animation: _pulseAnimation,
+                                      builder: (context, child) {
+                                        return Transform.scale(
+                                          scale: _pulseAnimation.value,
+                                          child: _buildStatusBadge(statusText, statusColor),
+                                        );
+                                      },
+                                    )
+                                  : _buildStatusBadge(statusText, statusColor),
                             );
                           },
                         ),
@@ -278,12 +273,13 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                                       : liveService.canStopStream
                                           ? _handleStopStream
                                           : null,
-                                  gradient: liveService.isLive
+                                  gradient: (liveService.isLive || liveService.isTesting)
                                       ? LinearGradient(
                                           colors: [Colors.red, Colors.red.shade700],
                                         )
                                       : ThemeService.primaryGradient,
-                                  child: liveService.streamState == StreamState.preparing
+                                  child: liveService.streamState == StreamState.preparing ||
+                                         liveService.streamState == StreamState.stopping
                                       ? const SizedBox(
                                           width: 20,
                                           height: 20,
@@ -293,7 +289,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                                           ),
                                         )
                                       : Text(
-                                          liveService.isLive ? 'Stop Live' : 'Go Live',
+                                          _getButtonText(liveService.streamState),
                                           style: const TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.bold,
@@ -360,30 +356,126 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   }
 
   void _handleGoLive() async {
-    final liveService = Provider.of<LiveService>(context, listen: false);
-    
-    // First create the stream
-    final streamCreated = await liveService.createLiveStream();
-    if (!streamCreated) return;
-    
-    // Then start streaming
-    final success = await liveService.startStream();
-    if (!success && mounted) {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to start live stream')),
+        const SnackBar(content: Text('Camera not ready')),
       );
+      return;
+    }
+
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    final watermarkService = Provider.of<WatermarkService>(context, listen: false);
+    
+    try {
+      // First create the stream
+      final streamCreated = await liveService.createLiveStream();
+      if (!streamCreated) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to create stream: ${liveService.errorMessage ?? "Unknown error"}')),
+          );
+        }
+        return;
+      }
+      
+      // Then start streaming with camera and watermark
+      final success = await liveService.startStream(
+        cameraController: _cameraController!,
+        watermarkService: watermarkService,
+      );
+      
+      if (success) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Live stream started successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to start live stream: ${liveService.errorMessage ?? "Unknown error"}')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error starting stream: $e')),
+        );
+      }
     }
   }
 
   void _handleStopStream() async {
     final liveService = Provider.of<LiveService>(context, listen: false);
-    await liveService.stopStream();
+    await liveService.stopStream(cameraController: _cameraController);
   }
 
   void _takeSnapshot() {
     // Implementation for taking snapshots
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Snapshot taken!')),
+    );
+  }
+
+  String _getButtonText(StreamState state) {
+    switch (state) {
+      case StreamState.idle:
+        return 'Go Live';
+      case StreamState.preparing:
+      case StreamState.stopping:
+        return 'Loading...';
+      case StreamState.testing:
+        return 'Stop Test';
+      case StreamState.live:
+        return 'Stop Live';
+      case StreamState.error:
+        return 'Retry';
+    }
+  }
+
+  Widget _buildStatusBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 6,
+      ),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 8,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

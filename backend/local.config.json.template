@@ -1,0 +1,16 @@
+{
+  "appLogin": [
+    {
+      "username": "admin",
+      "password": "CHANGE_THIS_PASSWORD"
+    }
+  ],
+  "oauth": {
+    "clientId": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+    "clientSecret": "YOUR_GOOGLE_CLIENT_SECRET",
+    "redirectUri": "http://localhost:5000/auth/callback"
+  },
+  "jwt": {
+    "secret": "CHANGE_THIS_JWT_SECRET_KEY"
+  }
+}
