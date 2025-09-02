@@ -5,6 +5,7 @@ import 'package:camera/camera.dart';
 import 'package:image_gallery_saver/image_gallery_saver.dart';
 import 'dart:io';
 import '../config.dart';
+import 'direct_streaming_service.dart';
 
 enum StreamState {
   idle,
@@ -118,6 +119,7 @@ class StreamConfiguration {
 class LiveService extends ChangeNotifier {
   final _secureStorage = const FlutterSecureStorage();
   final _dio = Dio();
+  final _directStreaming = DirectStreamingService();
   
   StreamState _streamState = StreamState.idle;
   String? _errorMessage;
@@ -128,6 +130,7 @@ class LiveService extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   LiveStreamInfo? get currentStream => _currentStream;
   StreamConfiguration get configuration => _configuration;
+  DirectStreamingService get directStreaming => _directStreaming;
   
   bool get isLive => _streamState == StreamState.live;
   bool get canStartStream => _streamState == StreamState.idle;
@@ -186,8 +189,34 @@ class LiveService extends ChangeNotifier {
       return false;
     }
 
-    _setState(StreamState.live);
-    return true;
+    try {
+      _setState(StreamState.preparing);
+
+      // Initialize direct streaming service if needed
+      if (!_directStreaming.isInitialized) {
+        await _directStreaming.initialize();
+      }
+
+      // Start direct streaming to YouTube RTMP
+      final streamingStarted = await _directStreaming.startStreaming(
+        cameraController: CameraController(
+          (await availableCameras()).first,
+          ResolutionPreset.high,
+        ),
+        streamInfo: _currentStream!,
+      );
+
+      if (!streamingStarted) {
+        _handleError('Failed to start streaming: ${_directStreaming.errorMessage}');
+        return false;
+      }
+
+      _setState(StreamState.live);
+      return true;
+    } catch (e) {
+      _handleError('Failed to start stream: $e');
+      return false;
+    }
   }
 
   Future<bool> stopStream() async {
@@ -198,6 +227,9 @@ class LiveService extends ChangeNotifier {
     _setState(StreamState.stopping);
 
     try {
+      // Stop direct streaming
+      await _directStreaming.stopStreaming();
+
       // Optionally call backend to end the broadcast
       if (_currentStream?.broadcastId != null) {
         final sessionToken = await _secureStorage.read(key: 'app_session');
@@ -344,6 +376,7 @@ class LiveService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _directStreaming.dispose();
     super.dispose();
   }
 }
