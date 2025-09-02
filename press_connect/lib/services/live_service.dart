@@ -128,27 +128,22 @@ class LiveService extends ChangeNotifier {
     try {
       _setState(testMode ? StreamState.testing : StreamState.preparing);
 
-      // Start RTMP streaming to local relay endpoint
-      final localRtmpUrl = '${AppConfig.backendBaseUrl.replaceAll('http', 'rtmp')}/live/input';
-      
+      // Start server-side stream processing with watermark first
+      final serverStreamStarted = await _startServerSideStream(watermarkService);
+      if (!serverStreamStarted) {
+        return false;
+      }
+
+      // Now start RTMP streaming to backend endpoint
       final streamingStarted = await _rtmpService.startStreaming(
         cameraController: cameraController,
-        streamInfo: LiveStreamInfo(
-          ingestUrl: localRtmpUrl.split('/live/input')[0],
-          streamKey: 'input',
-        ),
+        streamInfo: _currentStream!,
         watermarkService: watermarkService,
       );
 
       if (!streamingStarted) {
         _handleError('Failed to start RTMP streaming: ${_rtmpService.errorMessage}');
-        return false;
-      }
-
-      // Start server-side stream processing with watermark
-      final serverStreamStarted = await _startServerSideStream(watermarkService);
-      if (!serverStreamStarted) {
-        await _rtmpService.stopStreaming(cameraController: cameraController);
+        await _stopServerSideStream();
         return false;
       }
 
@@ -239,10 +234,11 @@ class LiveService extends ChangeNotifier {
         return false;
       }
 
-      final localRtmpInput = '${AppConfig.backendBaseUrl.replaceAll('http', 'rtmp')}/live/input';
       final youtubeRtmpOutput = _currentStream!.rtmpUrl;
 
-      Map<String, dynamic> watermarkConfig = {};
+      Map<String, dynamic> watermarkConfig = {
+        'enabled': false,
+      };
       if (watermarkService != null && watermarkService.isEnabled) {
         watermarkConfig = watermarkService.getRTMPWatermarkConfig();
       }
@@ -250,8 +246,7 @@ class LiveService extends ChangeNotifier {
       final response = await _dio.post(
         '${AppConfig.backendBaseUrl}/streaming/start',
         data: {
-          'rtmpInput': localRtmpInput,
-          'rtmpOutput': youtubeRtmpOutput,
+          'youtubeRtmpUrl': youtubeRtmpOutput,
           'watermarkConfig': watermarkConfig,
         },
         options: Options(
@@ -262,7 +257,21 @@ class LiveService extends ChangeNotifier {
       );
 
       if (response.statusCode == 200) {
-        _serverStreamId = response.data['streamId'];
+        _serverStreamId = response.data['streamKey'];
+        // Update the current stream to use the backend RTMP endpoint
+        final backendRtmpEndpoint = response.data['rtmpEndpoint'];
+        final streamKey = response.data['streamKey'];
+        
+        // Parse the RTMP endpoint to get ingest URL and stream key
+        final uri = Uri.parse(backendRtmpEndpoint);
+        final ingestUrl = '${uri.scheme}://${uri.host}:${uri.port}${uri.path.split('/').take(uri.path.split('/').length - 1).join('/')}';
+        
+        _currentStream = LiveStreamInfo(
+          ingestUrl: ingestUrl,
+          streamKey: streamKey,
+          broadcastId: _currentStream!.broadcastId,
+        );
+        
         return true;
       } else {
         _handleError('Failed to start server stream: ${response.statusMessage}');
@@ -285,7 +294,7 @@ class LiveService extends ChangeNotifier {
       await _dio.post(
         '${AppConfig.backendBaseUrl}/streaming/stop',
         data: {
-          'streamId': _serverStreamId,
+          'streamKey': _serverStreamId,
         },
         options: Options(
           headers: {
@@ -318,13 +327,10 @@ class LiveService extends ChangeNotifier {
         return null;
       }
 
-      final localRtmpInput = '${AppConfig.backendBaseUrl.replaceAll('http', 'rtmp')}/live/input';
-
       final response = await _dio.post(
         '${AppConfig.backendBaseUrl}/streaming/snapshot',
         data: {
-          'streamId': _serverStreamId,
-          'rtmpInput': localRtmpInput,
+          'streamKey': _serverStreamId,
         },
         options: Options(
           headers: {
@@ -364,13 +370,10 @@ class LiveService extends ChangeNotifier {
         return false;
       }
 
-      final localRtmpInput = '${AppConfig.backendBaseUrl.replaceAll('http', 'rtmp')}/live/input';
-
       final response = await _dio.post(
         '${AppConfig.backendBaseUrl}/streaming/recording/start',
         data: {
-          'streamId': _serverStreamId,
-          'rtmpInput': localRtmpInput,
+          'streamKey': _serverStreamId,
           'recordingConfig': {
             'quality': 'high',
             'format': 'mp4',
@@ -414,6 +417,7 @@ class LiveService extends ChangeNotifier {
       final response = await _dio.post(
         '${AppConfig.backendBaseUrl}/streaming/recording/stop',
         data: {
+          'streamKey': _serverStreamId,
           'recordingId': _recordingId,
         },
         options: Options(

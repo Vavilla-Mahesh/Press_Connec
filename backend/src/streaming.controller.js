@@ -3,6 +3,17 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
 const crypto = require('crypto');
+const RTMPServer = require('./rtmp.server');
+
+// Initialize RTMP server
+const rtmpServer = new RTMPServer();
+rtmpServer.init({
+  rtmpPort: process.env.RTMP_PORT || 1935,
+  httpPort: process.env.RTMP_HTTP_PORT || 8000
+});
+
+// Start RTMP server
+rtmpServer.start();
 
 // Configure multer for watermark uploads
 const storage = multer.diskStorage({
@@ -35,89 +46,34 @@ const upload = multer({
   }
 });
 
-// Store active streams for processing
-const activeStreams = new Map();
-
 /**
  * Start RTMP stream with watermark overlay to YouTube
  */
 const startStreamWithWatermark = async (req, res) => {
   try {
-    const { rtmpInput, rtmpOutput, watermarkConfig } = req.body;
+    const { youtubeRtmpUrl, watermarkConfig } = req.body;
     
-    if (!rtmpInput || !rtmpOutput) {
-      return res.status(400).json({ error: 'RTMP input and output URLs required' });
+    if (!youtubeRtmpUrl) {
+      return res.status(400).json({ error: 'YouTube RTMP URL required' });
     }
 
-    const streamId = crypto.randomUUID();
+    // Generate unique stream key
+    const streamKey = crypto.randomUUID();
     
-    // Create FFmpeg command for RTMP relay with watermark
-    const command = ffmpeg(rtmpInput)
-      .inputOptions([
-        '-re', // Read input at native frame rate
-        '-i', rtmpInput
-      ]);
-
-    // Add watermark if provided
-    if (watermarkConfig && watermarkConfig.enabled && watermarkConfig.path) {
-      const watermarkPath = path.join(__dirname, '../uploads/watermarks', watermarkConfig.path);
-      
-      try {
-        await fs.access(watermarkPath);
-        
-        command
-          .input(watermarkPath)
-          .complexFilter([
-            `[1:v]scale=iw:ih,format=rgba,colorchannelmixer=aa=${watermarkConfig.opacity || 0.3}[wm]`,
-            '[0:v][wm]overlay=(W-w)/2:(H-h)/2:enable=always[out]'
-          ])
-          .map('[out]')
-          .map('0:a?'); // Map audio if available
-      } catch (error) {
-        console.warn('Watermark file not found, streaming without watermark:', error.message);
-      }
-    }
-
-    // Configure output for YouTube RTMP
-    command
-      .outputOptions([
-        '-c:v', 'libx264',
-        '-preset', 'veryfast',
-        '-tune', 'zerolatency',
-        '-crf', '23',
-        '-maxrate', '2500k',
-        '-bufsize', '5000k',
-        '-pix_fmt', 'yuv420p',
-        '-g', '60',
-        '-c:a', 'aac',
-        '-b:a', '128k',
-        '-ar', '44100',
-        '-f', 'flv'
-      ])
-      .output(rtmpOutput);
-
-    // Start the stream
-    command.on('start', (commandLine) => {
-      console.log(`Started FFmpeg stream ${streamId}:`, commandLine);
-      activeStreams.set(streamId, { command, startTime: new Date() });
+    // Configure the stream in RTMP server
+    rtmpServer.configureStream(streamKey, {
+      youtubeRtmpUrl: youtubeRtmpUrl,
+      watermark: watermarkConfig || { enabled: false }
     });
 
-    command.on('error', (err) => {
-      console.error(`FFmpeg stream ${streamId} error:`, err);
-      activeStreams.delete(streamId);
-    });
-
-    command.on('end', () => {
-      console.log(`FFmpeg stream ${streamId} ended`);
-      activeStreams.delete(streamId);
-    });
-
-    command.run();
+    // Return the RTMP endpoint for the mobile app to stream to
+    const rtmpEndpoint = `rtmp://localhost:1935/live/${streamKey}`;
 
     res.json({
       success: true,
-      streamId: streamId,
-      message: 'Stream started with watermark processing'
+      streamKey: streamKey,
+      rtmpEndpoint: rtmpEndpoint,
+      message: 'RTMP stream configured successfully'
     });
 
   } catch (error) {
@@ -134,20 +90,14 @@ const startStreamWithWatermark = async (req, res) => {
  */
 const stopStream = async (req, res) => {
   try {
-    const { streamId } = req.body;
+    const { streamKey } = req.body;
     
-    if (!streamId) {
-      return res.status(400).json({ error: 'Stream ID required' });
+    if (!streamKey) {
+      return res.status(400).json({ error: 'Stream key required' });
     }
 
-    const stream = activeStreams.get(streamId);
-    if (!stream) {
-      return res.status(404).json({ error: 'Stream not found' });
-    }
-
-    // Kill the FFmpeg process
-    stream.command.kill('SIGTERM');
-    activeStreams.delete(streamId);
+    // Remove stream configuration and stop relay
+    rtmpServer.removeStreamConfig(streamKey);
 
     res.json({
       success: true,
@@ -168,10 +118,10 @@ const stopStream = async (req, res) => {
  */
 const captureSnapshot = async (req, res) => {
   try {
-    const { streamId, rtmpInput } = req.body;
+    const { streamKey } = req.body;
     
-    if (!rtmpInput) {
-      return res.status(400).json({ error: 'RTMP input URL required' });
+    if (!streamKey) {
+      return res.status(400).json({ error: 'Stream key required' });
     }
 
     const snapshotId = crypto.randomUUID();
@@ -180,30 +130,15 @@ const captureSnapshot = async (req, res) => {
     
     const snapshotPath = path.join(snapshotDir, `${snapshotId}.jpg`);
 
-    // Capture snapshot using FFmpeg
-    ffmpeg(rtmpInput)
-      .inputOptions(['-re'])
-      .outputOptions([
-        '-frames:v', '1',
-        '-q:v', '2'
-      ])
-      .output(snapshotPath)
-      .on('end', () => {
-        res.json({
-          success: true,
-          snapshotId: snapshotId,
-          snapshotPath: `/snapshots/${snapshotId}.jpg`,
-          message: 'Snapshot captured successfully'
-        });
-      })
-      .on('error', (err) => {
-        console.error('Snapshot capture error:', err);
-        res.status(500).json({
-          error: 'Failed to capture snapshot',
-          details: err.message
-        });
-      })
-      .run();
+    // Capture snapshot using RTMP server
+    await rtmpServer.captureSnapshot(streamKey, snapshotPath);
+
+    res.json({
+      success: true,
+      snapshotId: snapshotId,
+      snapshotPath: `/snapshots/${snapshotId}.jpg`,
+      message: 'Snapshot captured successfully'
+    });
 
   } catch (error) {
     console.error('Capture snapshot error:', error);
@@ -219,10 +154,10 @@ const captureSnapshot = async (req, res) => {
  */
 const startRecording = async (req, res) => {
   try {
-    const { streamId, rtmpInput, recordingConfig } = req.body;
+    const { streamKey, recordingConfig } = req.body;
     
-    if (!rtmpInput) {
-      return res.status(400).json({ error: 'RTMP input URL required' });
+    if (!streamKey) {
+      return res.status(400).json({ error: 'Stream key required' });
     }
 
     const recordingId = crypto.randomUUID();
@@ -231,43 +166,13 @@ const startRecording = async (req, res) => {
     
     const recordingPath = path.join(recordingDir, `${recordingId}.mp4`);
 
-    // Start recording using FFmpeg
-    const command = ffmpeg(rtmpInput)
-      .inputOptions(['-re'])
-      .outputOptions([
-        '-c:v', 'libx264',
-        '-preset', 'fast',
-        '-crf', '18',
-        '-c:a', 'aac',
-        '-b:a', '128k'
-      ])
-      .output(recordingPath);
-
-    command.on('start', (commandLine) => {
-      console.log(`Started recording ${recordingId}:`, commandLine);
-      activeStreams.set(`recording_${recordingId}`, { 
-        command, 
-        startTime: new Date(),
-        type: 'recording',
-        path: recordingPath
-      });
-    });
-
-    command.on('error', (err) => {
-      console.error(`Recording ${recordingId} error:`, err);
-      activeStreams.delete(`recording_${recordingId}`);
-    });
-
-    command.on('end', () => {
-      console.log(`Recording ${recordingId} ended`);
-      activeStreams.delete(`recording_${recordingId}`);
-    });
-
-    command.run();
+    // Start recording using RTMP server
+    const recordingKey = rtmpServer.startRecording(streamKey, recordingPath, recordingConfig || {});
 
     res.json({
       success: true,
       recordingId: recordingId,
+      recordingKey: recordingKey,
       recordingPath: `/recordings/${recordingId}.mp4`,
       message: 'Recording started successfully'
     });
@@ -286,42 +191,37 @@ const startRecording = async (req, res) => {
  */
 const stopRecording = async (req, res) => {
   try {
-    const { recordingId } = req.body;
+    const { streamKey, recordingId } = req.body;
     
-    if (!recordingId) {
-      return res.status(400).json({ error: 'Recording ID required' });
+    if (!streamKey) {
+      return res.status(400).json({ error: 'Stream key required' });
     }
 
-    const streamKey = `recording_${recordingId}`;
-    const recording = activeStreams.get(streamKey);
+    // Stop recording using RTMP server
+    const recordingResult = rtmpServer.stopRecording(streamKey);
     
-    if (!recording) {
-      return res.status(404).json({ error: 'Recording not found' });
-    }
-
-    // Stop the recording
-    recording.command.kill('SIGTERM');
-    
-    const recordingPath = recording.path;
-    activeStreams.delete(streamKey);
-
-    // Check if file exists and get stats
-    try {
-      const stats = await fs.stat(recordingPath);
-      res.json({
-        success: true,
-        recordingId: recordingId,
-        recordingPath: `/recordings/${recordingId}.mp4`,
-        fileSize: stats.size,
-        duration: Math.floor((new Date() - recording.startTime) / 1000),
-        message: 'Recording stopped successfully'
-      });
-    } catch (error) {
-      res.json({
-        success: true,
-        recordingId: recordingId,
-        message: 'Recording stopped but file info unavailable'
-      });
+    if (recordingResult) {
+      // Check if file exists and get stats
+      try {
+        const stats = await fs.stat(recordingResult.outputPath);
+        res.json({
+          success: true,
+          recordingId: recordingId,
+          recordingPath: `/recordings/${path.basename(recordingResult.outputPath)}`,
+          fileSize: stats.size,
+          duration: recordingResult.duration,
+          message: 'Recording stopped successfully'
+        });
+      } catch (error) {
+        res.json({
+          success: true,
+          recordingId: recordingId,
+          duration: recordingResult.duration,
+          message: 'Recording stopped successfully'
+        });
+      }
+    } else {
+      res.status(404).json({ error: 'No active recording found for this stream' });
     }
 
   } catch (error) {
@@ -381,12 +281,7 @@ const getWatermarks = async (req, res) => {
  */
 const getStreamStatus = async (req, res) => {
   try {
-    const activeStreamsList = Array.from(activeStreams.entries()).map(([id, stream]) => ({
-      id: id,
-      type: stream.type || 'stream',
-      startTime: stream.startTime,
-      uptime: Math.floor((new Date() - stream.startTime) / 1000)
-    }));
+    const activeStreamsList = rtmpServer.getActiveStreams();
 
     res.json({
       success: true,

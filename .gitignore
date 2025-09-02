@@ -28,6 +28,7 @@ backend/.firebaserc
 backend/firebase-debug.log
 backend/google-services.json
 backend/tokens.json
+backend/uploads/
 # Logs
 *.log
 
