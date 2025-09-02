@@ -8,6 +8,7 @@ const dotenv = require('dotenv');
 
 const authController = require('./src/auth.controller');
 const liveController = require('./src/live.controller');
+const analyticsController = require('./src/analytics.controller');
 
 dotenv.config();
 
@@ -81,8 +82,11 @@ app.post('/auth/app-login', authController.appLogin);
 app.post('/auth/exchange', verifyToken, authController.exchangeCode);
 
 app.post('/live/create', verifyToken, liveController.createLiveStream);
-app.post('/live/transition', verifyToken, liveController.transitionBroadcast);
 app.post('/live/end', verifyToken, liveController.endLiveStream);
+
+// Analytics routes
+app.get('/analytics/stream', verifyToken, analyticsController.getStreamAnalytics);
+app.get('/analytics/live', verifyToken, analyticsController.getLiveMetrics);
 
 // Health check
 app.get('/health', (req, res) => {

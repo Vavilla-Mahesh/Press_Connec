@@ -2,6 +2,7 @@
 
 const googleOAuth = require('./google.oauth');
 const tokenStore = require('./token.store');
+const { retryApiCall, circuitBreakers, StreamingFallback } = require('./error-recovery');
 
 const createLiveStream = async (req, res) => {
   try {
@@ -69,47 +70,59 @@ const createLiveStream = async (req, res) => {
 
     const currentSettings = streamSettings[quality];
 
-    // Create live broadcast
-    const broadcastResponse = await youtube.liveBroadcasts.insert({
-      part: ['snippet', 'status'],
-      requestBody: {
-        snippet: {
-          title: title || `Press Connect Live - ${new Date().toISOString()}`,
-          description: description || 'Live stream from Press Connect app',
-          scheduledStartTime: new Date().toISOString(),
-          scheduledEndTime: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString() // 4 hours
-        },
-        status: {
-          privacyStatus: visibility,
-          selfDeclaredMadeForKids: false
-        }
-      }
+    // Create live broadcast with retry and circuit breaker
+    const broadcastResponse = await circuitBreakers.youtube.execute(async () => {
+      return await retryApiCall(async () => {
+        return await youtube.liveBroadcasts.insert({
+          part: ['snippet', 'status'],
+          requestBody: {
+            snippet: {
+              title: title || `Press Connect Live - ${new Date().toISOString()}`,
+              description: description || 'Live stream from Press Connect app',
+              scheduledStartTime: new Date().toISOString(),
+              scheduledEndTime: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString() // 4 hours
+            },
+            status: {
+              privacyStatus: visibility,
+              selfDeclaredMadeForKids: false
+            }
+          }
+        });
+      }, { maxAttempts: 3, baseDelay: 1000 });
     });
 
     const broadcast = broadcastResponse.data;
 
-    // Create live stream
-    const streamResponse = await youtube.liveStreams.insert({
-      part: ['snippet', 'cdn'],
-      requestBody: {
-        snippet: {
-          title: `Press Connect Stream - ${new Date().toISOString()}`
-        },
-        cdn: {
-          frameRate: currentSettings.frameRate,
-          ingestionType: 'rtmp',
-          resolution: currentSettings.resolution
-        }
-      }
+    // Create live stream with retry
+    const streamResponse = await circuitBreakers.youtube.execute(async () => {
+      return await retryApiCall(async () => {
+        return await youtube.liveStreams.insert({
+          part: ['snippet', 'cdn'],
+          requestBody: {
+            snippet: {
+              title: `Press Connect Stream - ${new Date().toISOString()}`
+            },
+            cdn: {
+              frameRate: currentSettings.frameRate,
+              ingestionType: 'rtmp',
+              resolution: currentSettings.resolution
+            }
+          }
+        });
+      }, { maxAttempts: 3, baseDelay: 1000 });
     });
 
     const stream = streamResponse.data;
 
-    // Bind broadcast to stream
-    await youtube.liveBroadcasts.bind({
-      part: ['id'],
-      id: broadcast.id,
-      streamId: stream.id
+    // Bind broadcast to stream with retry
+    await circuitBreakers.youtube.execute(async () => {
+      return await retryApiCall(async () => {
+        return await youtube.liveBroadcasts.bind({
+          part: ['id'],
+          id: broadcast.id,
+          streamId: stream.id
+        });
+      }, { maxAttempts: 3, baseDelay: 500 });
     });
 
     // Return stream information
@@ -161,11 +174,15 @@ const endLiveStream = async (req, res) => {
     // Get YouTube API instance
     const youtube = googleOAuth.getYouTubeAPI(tokens.access_token);
 
-    // Transition broadcast to complete
-    await youtube.liveBroadcasts.transition({
-      part: ['status'],
-      id: broadcastId,
-      broadcastStatus: 'complete'
+    // Transition broadcast to complete with retry
+    await circuitBreakers.youtube.execute(async () => {
+      return await retryApiCall(async () => {
+        return await youtube.liveBroadcasts.transition({
+          part: ['status'],
+          id: broadcastId,
+          broadcastStatus: 'complete'
+        });
+      }, { maxAttempts: 3, baseDelay: 1000 });
     });
 
     res.json({

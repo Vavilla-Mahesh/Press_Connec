@@ -6,6 +6,7 @@ import 'package:image_gallery_saver/image_gallery_saver.dart';
 import 'dart:io';
 import '../config.dart';
 import 'direct_streaming_service.dart';
+import 'retry_service.dart';
 
 enum StreamState {
   idle,
@@ -13,14 +14,6 @@ enum StreamState {
   live,
   stopping,
   error
-}
-
-enum StreamQuality {
-  quality720p('720p'),
-  quality1080p('1080p');
-
-  const StreamQuality(this.value);
-  final String value;
 }
 
 enum StreamVisibility {
@@ -158,14 +151,19 @@ class LiveService extends ChangeNotifier {
 
       final streamConfig = config ?? _configuration;
 
-      final response = await _dio.post(
-        '${AppConfig.backendBaseUrl}/live/create',
-        data: streamConfig.toJson(),
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $sessionToken',
-          },
+      // Use retry service for API call
+      final response = await retryService.executeWithRetry(
+        () => _dio.post(
+          '${AppConfig.backendBaseUrl}/live/create',
+          data: streamConfig.toJson(),
+          options: Options(
+            headers: {
+              'Authorization': 'Bearer $sessionToken',
+            },
+          ),
         ),
+        serviceName: 'live_api',
+        options: RetryPresets.apiCall,
       );
 
       if (response.statusCode == 200) {
@@ -234,16 +232,20 @@ class LiveService extends ChangeNotifier {
       if (_currentStream?.broadcastId != null) {
         final sessionToken = await _secureStorage.read(key: 'app_session');
         if (sessionToken != null) {
-          await _dio.post(
-            '${AppConfig.backendBaseUrl}/live/end',
-            data: {
-              'broadcastId': _currentStream!.broadcastId,
-            },
-            options: Options(
-              headers: {
-                'Authorization': 'Bearer $sessionToken',
+          await retryService.executeWithRetry(
+            () => _dio.post(
+              '${AppConfig.backendBaseUrl}/live/end',
+              data: {
+                'broadcastId': _currentStream!.broadcastId,
               },
+              options: Options(
+                headers: {
+                  'Authorization': 'Bearer $sessionToken',
+                },
+              ),
             ),
+            serviceName: 'live_api',
+            options: RetryPresets.apiCall,
           );
         }
       }
