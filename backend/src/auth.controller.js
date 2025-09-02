@@ -24,7 +24,7 @@ const appLogin = async (req, res) => {
     const token = jwt.sign(
       { username: validUser.username },
       req.config.jwt.secret,
-      { expiresIn: req.config.jwt.expiresIn }
+      { expiresIn: '7d' } // 7 days expiration
     );
 
     res.json({

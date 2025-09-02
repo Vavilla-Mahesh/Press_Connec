@@ -4,7 +4,6 @@ import 'config.dart';
 import 'services/auth_service.dart';
 import 'services/theme_service.dart';
 import 'services/live_service.dart';
-import 'services/watermark_service.dart';
 import 'ui/screens/login_screen.dart';
 import 'ui/screens/youtube_connect_screen.dart';
 import 'ui/screens/go_live_screen.dart';
@@ -36,7 +35,6 @@ class PressConnectApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthService()),
         ChangeNotifierProvider(create: (_) => ThemeService()),
         ChangeNotifierProvider(create: (_) => LiveService()),
-        ChangeNotifierProvider(create: (_) => WatermarkService()),
       ],
       child: Consumer<ThemeService>(
         builder: (context, themeService, child) {

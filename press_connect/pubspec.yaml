@@ -47,10 +47,9 @@ dependencies:
   flutter_secure_storage: ^9.2.2
 
   # Live Streaming & Media
-  rtmp_broadcaster: ^2.3.4
-  ffmpeg_kit_flutter_new: ^3.2.0
   camera: ^0.10.5+9
   permission_handler: ^11.3.1
+  image_gallery_saver: ^2.0.3
 
   # Storage & File Management
   path_provider: ^2.1.3
@@ -81,7 +80,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/config.json
-    - assets/watermarks/
 #    - assets/images/
 #    - assets/lottie/
 

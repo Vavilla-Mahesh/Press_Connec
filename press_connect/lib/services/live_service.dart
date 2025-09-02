@@ -2,28 +2,66 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:dio/dio.dart';
 import 'package:camera/camera.dart';
+import 'package:image_gallery_saver/image_gallery_saver.dart';
+import 'dart:io';
 import '../config.dart';
-import 'rtmp_streaming_service.dart';
-import 'watermark_service.dart';
+import 'direct_streaming_service.dart';
 
 enum StreamState {
   idle,
   preparing,
-  testing,      // YouTube broadcast in testing state
-  live,         // YouTube broadcast is live
+  live,
   stopping,
   error
+}
+
+enum StreamQuality {
+  quality720p('720p'),
+  quality1080p('1080p');
+
+  const StreamQuality(this.value);
+  final String value;
+}
+
+enum StreamVisibility {
+  public('public'),
+  unlisted('unlisted'),
+  private('private');
+
+  const StreamVisibility(this.value);
+  final String value;
+}
+
+enum StreamStatus {
+  live('live'),
+  scheduled('scheduled'),
+  offline('offline');
+
+  const StreamStatus(this.value);
+  final String value;
 }
 
 class LiveStreamInfo {
   final String ingestUrl;
   final String streamKey;
   final String? broadcastId;
+  final String? streamId;
+  final StreamQuality quality;
+  final StreamVisibility visibility;
+  final StreamStatus status;
+  final String? title;
+  final String? watchUrl;
 
   LiveStreamInfo({
     required this.ingestUrl,
     required this.streamKey,
     this.broadcastId,
+    this.streamId,
+    this.quality = StreamQuality.quality720p,
+    this.visibility = StreamVisibility.public,
+    this.status = StreamStatus.live,
+    this.title,
+    this.watchUrl,
   });
 
   String get rtmpUrl => '$ingestUrl/$streamKey';
@@ -33,30 +71,77 @@ class LiveStreamInfo {
       ingestUrl: json['ingestUrl'] ?? '',
       streamKey: json['streamKey'] ?? '',
       broadcastId: json['broadcastId'],
+      streamId: json['streamId'],
+      quality: StreamQuality.values.firstWhere(
+        (q) => q.value == json['quality'],
+        orElse: () => StreamQuality.quality720p,
+      ),
+      visibility: StreamVisibility.values.firstWhere(
+        (v) => v.value == json['visibility'],
+        orElse: () => StreamVisibility.public,
+      ),
+      status: StreamStatus.values.firstWhere(
+        (s) => s.value == json['status'],
+        orElse: () => StreamStatus.live,
+      ),
+      title: json['title'],
+      watchUrl: json['watchUrl'],
     );
+  }
+}
+
+class StreamConfiguration {
+  final String? title;
+  final String? description;
+  final StreamQuality quality;
+  final StreamVisibility visibility;
+  final StreamStatus status;
+
+  StreamConfiguration({
+    this.title,
+    this.description,
+    this.quality = StreamQuality.quality720p,
+    this.visibility = StreamVisibility.public,
+    this.status = StreamStatus.live,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      if (title != null) 'title': title,
+      if (description != null) 'description': description,
+      'quality': quality.value,
+      'visibility': visibility.value,
+      'status': status.value,
+    };
   }
 }
 
 class LiveService extends ChangeNotifier {
   final _secureStorage = const FlutterSecureStorage();
   final _dio = Dio();
-  final _rtmpService = RTMPStreamingService();
+  final _directStreaming = DirectStreamingService();
   
   StreamState _streamState = StreamState.idle;
   String? _errorMessage;
   LiveStreamInfo? _currentStream;
+  StreamConfiguration _configuration = StreamConfiguration();
   
   StreamState get streamState => _streamState;
   String? get errorMessage => _errorMessage;
   LiveStreamInfo? get currentStream => _currentStream;
-  RTMPStreamingService get rtmpService => _rtmpService;
+  StreamConfiguration get configuration => _configuration;
+  DirectStreamingService get directStreaming => _directStreaming;
   
   bool get isLive => _streamState == StreamState.live;
-  bool get isTesting => _streamState == StreamState.testing;
   bool get canStartStream => _streamState == StreamState.idle;
-  bool get canStopStream => _streamState == StreamState.live || _streamState == StreamState.testing;
+  bool get canStopStream => _streamState == StreamState.live;
 
-  Future<bool> createLiveStream() async {
+  void updateConfiguration(StreamConfiguration config) {
+    _configuration = config;
+    notifyListeners();
+  }
+
+  Future<bool> createLiveStream({StreamConfiguration? config}) async {
     if (_streamState != StreamState.idle) {
       _handleError('Cannot create stream: already in progress');
       return false;
@@ -65,23 +150,17 @@ class LiveService extends ChangeNotifier {
     _setState(StreamState.preparing);
 
     try {
-      // Initialize RTMP service if not already done
-      if (!_rtmpService.isInitialized) {
-        final rtmpInitialized = await _rtmpService.initialize();
-        if (!rtmpInitialized) {
-          _handleError('Failed to initialize streaming service: ${_rtmpService.errorMessage}');
-          return false;
-        }
-      }
-
       final sessionToken = await _secureStorage.read(key: 'app_session');
       if (sessionToken == null) {
         _handleError('No authentication session found');
         return false;
       }
 
+      final streamConfig = config ?? _configuration;
+
       final response = await _dio.post(
         '${AppConfig.backendBaseUrl}/live/create',
+        data: streamConfig.toJson(),
         options: Options(
           headers: {
             'Authorization': 'Bearer $sessionToken',
@@ -104,47 +183,35 @@ class LiveService extends ChangeNotifier {
     }
   }
 
-  Future<bool> startStream({
-    required CameraController cameraController,
-    WatermarkService? watermarkService,
-    bool testMode = false,
-  }) async {
+  Future<bool> startStream() async {
     if (_currentStream == null) {
       _handleError('No stream created');
       return false;
     }
 
-    if (!_rtmpService.isInitialized) {
-      _handleError('Streaming service not initialized');
-      return false;
-    }
-
     try {
-      _setState(testMode ? StreamState.testing : StreamState.preparing);
+      _setState(StreamState.preparing);
 
-      // Start RTMP streaming
-      final streamingStarted = await _rtmpService.startStreaming(
-        cameraController: cameraController,
+      // Initialize direct streaming service if needed
+      if (!_directStreaming.isInitialized) {
+        await _directStreaming.initialize();
+      }
+
+      // Start direct streaming to YouTube RTMP
+      final streamingStarted = await _directStreaming.startStreaming(
+        cameraController: CameraController(
+          (await availableCameras()).first,
+          ResolutionPreset.high,
+        ),
         streamInfo: _currentStream!,
-        watermarkService: watermarkService,
       );
 
       if (!streamingStarted) {
-        _handleError('Failed to start RTMP streaming: ${_rtmpService.errorMessage}');
+        _handleError('Failed to start streaming: ${_directStreaming.errorMessage}');
         return false;
       }
 
-      if (!testMode) {
-        // Transition YouTube broadcast to live
-        final transitioned = await _transitionBroadcast('live');
-        if (!transitioned) {
-          // Stop RTMP streaming if YouTube transition failed
-          await _rtmpService.stopStreaming(cameraController: cameraController);
-          return false;
-        }
-      }
-
-      _setState(testMode ? StreamState.testing : StreamState.live);
+      _setState(StreamState.live);
       return true;
     } catch (e) {
       _handleError('Failed to start stream: $e');
@@ -152,19 +219,19 @@ class LiveService extends ChangeNotifier {
     }
   }
 
-  Future<bool> stopStream({CameraController? cameraController}) async {
-    if (_streamState != StreamState.live && _streamState != StreamState.testing) {
+  Future<bool> stopStream() async {
+    if (_streamState != StreamState.live) {
       return true;
     }
 
     _setState(StreamState.stopping);
 
     try {
-      // Stop RTMP streaming first
-      await _rtmpService.stopStreaming(cameraController: cameraController);
+      // Stop direct streaming
+      await _directStreaming.stopStreaming();
 
-      // End the YouTube broadcast if it was live
-      if (_currentStream?.broadcastId != null && _streamState == StreamState.live) {
+      // Optionally call backend to end the broadcast
+      if (_currentStream?.broadcastId != null) {
         final sessionToken = await _secureStorage.read(key: 'app_session');
         if (sessionToken != null) {
           await _dio.post(
@@ -190,81 +257,98 @@ class LiveService extends ChangeNotifier {
     }
   }
 
+  /// Capture snapshot from camera and save to gallery
+  Future<bool> captureSnapshot(CameraController cameraController) async {
+    try {
+      if (!cameraController.value.isInitialized) {
+        _handleError('Camera not initialized');
+        return false;
+      }
+
+      final XFile image = await cameraController.takePicture();
+      
+      // Save to gallery
+      final result = await ImageGallerySaver.saveFile(image.path);
+      
+      if (result['isSuccess'] == true) {
+        if (kDebugMode) {
+          print('Snapshot saved to gallery');
+        }
+        return true;
+      } else {
+        _handleError('Failed to save snapshot to gallery');
+        return false;
+      }
+    } catch (e) {
+      _handleError('Failed to capture snapshot: $e');
+      return false;
+    }
+  }
+
+  /// Start recording video to save locally
+  Future<bool> startVideoRecording(CameraController cameraController) async {
+    try {
+      if (!cameraController.value.isInitialized) {
+        _handleError('Camera not initialized');
+        return false;
+      }
+
+      if (cameraController.value.isRecordingVideo) {
+        _handleError('Already recording video');
+        return false;
+      }
+
+      await cameraController.startVideoRecording();
+      
+      if (kDebugMode) {
+        print('Video recording started');
+      }
+      return true;
+    } catch (e) {
+      _handleError('Failed to start video recording: $e');
+      return false;
+    }
+  }
+
+  /// Stop recording video and save to gallery
+  Future<bool> stopVideoRecording(CameraController cameraController) async {
+    try {
+      if (!cameraController.value.isRecordingVideo) {
+        _handleError('Not recording video');
+        return false;
+      }
+
+      final XFile video = await cameraController.stopVideoRecording();
+      
+      // Save to gallery
+      final result = await ImageGallerySaver.saveFile(video.path);
+      
+      if (result['isSuccess'] == true) {
+        if (kDebugMode) {
+          print('Video saved to gallery');
+        }
+        
+        // Clean up temporary file
+        final file = File(video.path);
+        if (await file.exists()) {
+          await file.delete();
+        }
+        
+        return true;
+      } else {
+        _handleError('Failed to save video to gallery');
+        return false;
+      }
+    } catch (e) {
+      _handleError('Failed to stop video recording: $e');
+      return false;
+    }
+  }
+
   void reset() {
     _currentStream = null;
     _setState(StreamState.idle);
     _errorMessage = null;
-  }
-
-  /// Transition YouTube broadcast to specified status
-  Future<bool> _transitionBroadcast(String status) async {
-    if (_currentStream?.broadcastId == null) {
-      _handleError('No broadcast ID available');
-      return false;
-    }
-
-    try {
-      final sessionToken = await _secureStorage.read(key: 'app_session');
-      if (sessionToken == null) {
-        _handleError('No authentication session found');
-        return false;
-      }
-
-      final response = await _dio.post(
-        '${AppConfig.backendBaseUrl}/live/transition',
-        data: {
-          'broadcastId': _currentStream!.broadcastId,
-          'broadcastStatus': status,
-        },
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $sessionToken',
-          },
-        ),
-      );
-
-      if (response.statusCode == 200) {
-        return true;
-      } else {
-        _handleError('Failed to transition broadcast: ${response.statusMessage}');
-        return false;
-      }
-    } catch (e) {
-      _handleError('Failed to transition broadcast: $e');
-      return false;
-    }
-  }
-
-  /// Start test stream (allows testing without going live)
-  Future<bool> startTestStream({
-    required CameraController cameraController,
-    WatermarkService? watermarkService,
-  }) async {
-    return startStream(
-      cameraController: cameraController,
-      watermarkService: watermarkService,
-      testMode: true,
-    );
-  }
-
-  /// Go live from test mode
-  Future<bool> goLiveFromTest() async {
-    if (_streamState != StreamState.testing) {
-      _handleError('Not in test mode');
-      return false;
-    }
-
-    try {
-      final transitioned = await _transitionBroadcast('live');
-      if (transitioned) {
-        _setState(StreamState.live);
-        return true;
-      }
-      return false;
-    } catch (e) {
-      _handleError('Failed to go live: $e');
-      return false;
-    }
   }
 
   void _setState(StreamState state) {
@@ -292,7 +376,7 @@ class LiveService extends ChangeNotifier {
 
   @override
   void dispose() {
-    _rtmpService.dispose();
+    _directStreaming.dispose();
     super.dispose();
   }
 }
