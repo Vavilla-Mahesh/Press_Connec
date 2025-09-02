@@ -278,12 +278,13 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                                       : liveService.canStopStream
                                           ? _handleStopStream
                                           : null,
-                                  gradient: liveService.isLive
+                                  gradient: (liveService.isLive || liveService.isTesting)
                                       ? LinearGradient(
                                           colors: [Colors.red, Colors.red.shade700],
                                         )
                                       : ThemeService.primaryGradient,
-                                  child: liveService.streamState == StreamState.preparing
+                                  child: liveService.streamState == StreamState.preparing ||
+                                         liveService.streamState == StreamState.stopping
                                       ? const SizedBox(
                                           width: 20,
                                           height: 20,
@@ -293,7 +294,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                                           ),
                                         )
                                       : Text(
-                                          liveService.isLive ? 'Stop Live' : 'Go Live',
+                                          _getButtonText(liveService.streamState),
                                           style: const TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.bold,
@@ -360,24 +361,43 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   }
 
   void _handleGoLive() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Camera not ready')),
+      );
+      return;
+    }
+
     final liveService = Provider.of<LiveService>(context, listen: false);
+    final watermarkService = Provider.of<WatermarkService>(context, listen: false);
     
     // First create the stream
     final streamCreated = await liveService.createLiveStream();
-    if (!streamCreated) return;
+    if (!streamCreated) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to create stream: ${liveService.errorMessage}')),
+        );
+      }
+      return;
+    }
     
-    // Then start streaming
-    final success = await liveService.startStream();
+    // Then start streaming with camera and watermark
+    final success = await liveService.startStream(
+      cameraController: _cameraController!,
+      watermarkService: watermarkService,
+    );
+    
     if (!success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to start live stream')),
+        SnackBar(content: Text('Failed to start live stream: ${liveService.errorMessage}')),
       );
     }
   }
 
   void _handleStopStream() async {
     final liveService = Provider.of<LiveService>(context, listen: false);
-    await liveService.stopStream();
+    await liveService.stopStream(cameraController: _cameraController);
   }
 
   void _takeSnapshot() {
@@ -385,6 +405,22 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Snapshot taken!')),
     );
+  }
+
+  String _getButtonText(StreamState state) {
+    switch (state) {
+      case StreamState.idle:
+        return 'Go Live';
+      case StreamState.preparing:
+      case StreamState.stopping:
+        return 'Loading...';
+      case StreamState.testing:
+        return 'Stop Test';
+      case StreamState.live:
+        return 'Stop Live';
+      case StreamState.error:
+        return 'Retry';
+    }
   }
 }
 
