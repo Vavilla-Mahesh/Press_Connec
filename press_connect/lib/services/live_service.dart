@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:dio/dio.dart';
 import '../config.dart';
+import 'rtmp_streaming_service.dart';
 
 enum StreamState {
   idle,
@@ -36,6 +37,7 @@ class LiveStreamInfo {
 class LiveService extends ChangeNotifier {
   final _secureStorage = const FlutterSecureStorage();
   final _dio = Dio();
+  final RTMPStreamingService _streamingService = RTMPStreamingService();
   
   StreamState _streamState = StreamState.idle;
   String? _errorMessage;
@@ -47,6 +49,7 @@ class LiveService extends ChangeNotifier {
   bool get isLive => _streamState == StreamState.live;
   bool get canStartStream => _streamState == StreamState.idle;
   bool get canStopStream => _streamState == StreamState.live;
+  RTMPStreamingService get streamingService => _streamingService;
 
   Future<bool> createLiveStream() async {
     if (_streamState != StreamState.idle) {
@@ -93,8 +96,29 @@ class LiveService extends ChangeNotifier {
       return false;
     }
 
-    _setState(StreamState.live);
-    return true;
+    try {
+      // Initialize streaming service if not already done
+      if (_streamingService.state == StreamingState.idle) {
+        final initialized = await _streamingService.initialize();
+        if (!initialized) {
+          _handleError(_streamingService.errorMessage ?? 'Failed to initialize streaming');
+          return false;
+        }
+      }
+
+      // Start RTMP streaming
+      final success = await _streamingService.startStreaming(_currentStream!.rtmpUrl);
+      if (success) {
+        _setState(StreamState.live);
+        return true;
+      } else {
+        _handleError(_streamingService.errorMessage ?? 'Failed to start streaming');
+        return false;
+      }
+    } catch (e) {
+      _handleError('Failed to start stream: $e');
+      return false;
+    }
   }
 
   Future<bool> stopStream() async {
@@ -105,6 +129,9 @@ class LiveService extends ChangeNotifier {
     _setState(StreamState.stopping);
 
     try {
+      // Stop RTMP streaming
+      await _streamingService.stopStreaming();
+
       // Optionally call backend to end the broadcast
       if (_currentStream?.broadcastId != null) {
         final sessionToken = await _secureStorage.read(key: 'app_session');
@@ -134,6 +161,7 @@ class LiveService extends ChangeNotifier {
     _currentStream = null;
     _setState(StreamState.idle);
     _errorMessage = null;
+    _streamingService.reset();
   }
 
   void _setState(StreamState state) {
@@ -157,5 +185,11 @@ class LiveService extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _streamingService.dispose();
+    super.dispose();
   }
 }

@@ -10,15 +10,9 @@
     "https://www.googleapis.com/auth/youtube.readonly",
     "https://www.googleapis.com/auth/youtube.upload"
   ],
-  "defaultWatermarkOpacity": 0.3,
   "app": {
     "name": "Press Connect",
     "version": "1.0.0"
-  },
-  "watermark": {
-    "defaultImagePath": "assets/watermarks/default_watermark.png",
-    "maxOpacity": 1.0,
-    "minOpacity": 0.0
   },
   "streaming": {
     "defaultBitrate": 2500,

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:camera/camera.dart';
+import '../../config.dart';
 import '../../services/live_service.dart';
-import '../../services/watermark_service.dart';
 import '../../services/theme_service.dart';
+import '../../services/rtmp_streaming_service.dart';
 import '../widgets/animated_gradient_background.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/animated_button.dart';
@@ -17,17 +18,14 @@ class GoLiveScreen extends StatefulWidget {
 
 class _GoLiveScreenState extends State<GoLiveScreen>
     with TickerProviderStateMixin {
-  CameraController? _cameraController;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
-  bool _isCameraInitialized = false;
-  List<CameraDescription> _cameras = [];
 
   @override
   void initState() {
     super.initState();
-    _initializeCamera();
     _initializeAnimations();
+    _initializeStreaming();
   }
 
   void _initializeAnimations() {
@@ -47,36 +45,13 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     _pulseController.repeat(reverse: true);
   }
 
-  Future<void> _initializeCamera() async {
-    try {
-      _cameras = await availableCameras();
-      if (_cameras.isNotEmpty) {
-        _cameraController = CameraController(
-          _cameras.first,
-          ResolutionPreset.high,
-          enableAudio: true,
-        );
-        
-        await _cameraController!.initialize();
-        
-        if (mounted) {
-          setState(() {
-            _isCameraInitialized = true;
-          });
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Camera initialization failed: $e')),
-        );
-      }
-    }
+  Future<void> _initializeStreaming() async {
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    await liveService.streamingService.initialize();
   }
 
   @override
   void dispose() {
-    _cameraController?.dispose();
     _pulseController.dispose();
     super.dispose();
   }
@@ -119,39 +94,22 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                     child: Stack(
                       children: [
                         // Camera Preview
-                        if (_isCameraInitialized && _cameraController != null)
-                          SizedBox.expand(
-                            child: CameraPreview(_cameraController!),
-                          )
-                        else
-                          Container(
-                            color: Colors.black,
-                            child: const Center(
-                              child: CircularProgressIndicator(),
-                            ),
-                          ),
-                        
-                        // Watermark Overlay
-                        Consumer<WatermarkService>(
-                          builder: (context, watermarkService, child) {
-                            if (!watermarkService.isEnabled) {
-                              return const SizedBox.shrink();
-                            }
+                        Consumer<LiveService>(
+                          builder: (context, liveService, child) {
+                            final streamingService = liveService.streamingService;
                             
-                            return Positioned.fill(
-                              child: AnimatedOpacity(
-                                opacity: watermarkService.alphaValue,
-                                duration: const Duration(milliseconds: 200),
-                                child: Container(
-                                  decoration: const BoxDecoration(
-                                    image: DecorationImage(
-                                      image: AssetImage('assets/watermarks/default_watermark.png'),
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
+                            if (streamingService.isCameraInitialized && streamingService.cameraController != null) {
+                              return SizedBox.expand(
+                                child: CameraPreview(streamingService.cameraController!),
+                              );
+                            } else {
+                              return Container(
+                                color: Colors.black,
+                                child: const Center(
+                                  child: CircularProgressIndicator(),
                                 ),
-                              ),
-                            );
+                              );
+                            }
                           },
                         ),
                         
@@ -228,9 +186,9 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     children: [
-                      // Watermark Opacity Slider
-                      Consumer<WatermarkService>(
-                        builder: (context, watermarkService, child) {
+                      // Stream Status Card
+                      Consumer<LiveService>(
+                        builder: (context, liveService, child) {
                           return GlassCard(
                             padding: const EdgeInsets.all(20),
                             child: Column(
@@ -238,25 +196,37 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                               children: [
                                 Row(
                                   children: [
-                                    const Icon(Icons.opacity),
+                                    Icon(
+                                      liveService.isLive ? Icons.broadcast_on_home : Icons.videocam,
+                                      color: liveService.isLive ? Colors.red : Colors.grey,
+                                    ),
                                     const SizedBox(width: 8),
-                                    const Text(
-                                      'Watermark Opacity',
-                                      style: TextStyle(
+                                    Text(
+                                      liveService.isLive ? 'Live Streaming' : 'Ready to Stream',
+                                      style: const TextStyle(
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                     const Spacer(),
-                                    Text('${watermarkService.opacityPercentage}%'),
+                                    if (liveService.isLive)
+                                      const Text(
+                                        '● LIVE',
+                                        style: TextStyle(
+                                          color: Colors.red,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                   ],
                                 ),
                                 const SizedBox(height: 12),
-                                Slider(
-                                  value: watermarkService.opacity,
-                                  min: 0.0,
-                                  max: 1.0,
-                                  divisions: 100,
-                                  onChanged: watermarkService.setOpacity,
+                                Text(
+                                  liveService.isLive 
+                                    ? 'Broadcasting to YouTube'
+                                    : 'Camera ready for streaming',
+                                  style: TextStyle(
+                                    color: Colors.grey[400],
+                                    fontSize: 14,
+                                  ),
                                 ),
                               ],
                             ),
@@ -307,7 +277,26 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                           
                           const SizedBox(width: 16),
                           
-                          // Action Buttons (Snapshot, Record)
+                          // Camera Switch Button
+                          Consumer<LiveService>(
+                            builder: (context, liveService, child) {
+                              return Container(
+                                decoration: BoxDecoration(
+                                  gradient: ThemeService.accentGradient,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: IconButton(
+                                  onPressed: !liveService.isLive ? _switchCamera : null,
+                                  icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
+                                  tooltip: 'Switch Camera',
+                                ),
+                              );
+                            },
+                          ),
+                          
+                          const SizedBox(width: 8),
+                          
+                          // Snapshot Button
                           Container(
                             decoration: BoxDecoration(
                               gradient: ThemeService.accentGradient,
@@ -380,6 +369,17 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     await liveService.stopStream();
   }
 
+  void _switchCamera() async {
+    final liveService = Provider.of<LiveService>(context, listen: false);
+    final success = await liveService.streamingService.switchCamera();
+    
+    if (!success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to switch camera')),
+      );
+    }
+  }
+
   void _takeSnapshot() {
     // Implementation for taking snapshots
     ScaffoldMessenger.of(context).showSnackBar(
@@ -399,20 +399,22 @@ class SettingsBottomSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'Settings',
+            'Stream Settings',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 24),
           
-          Consumer<WatermarkService>(
-            builder: (context, watermarkService, child) {
-              return SwitchListTile(
-                title: const Text('Enable Watermark'),
-                subtitle: const Text('Show watermark overlay on stream'),
-                value: watermarkService.isEnabled,
-                onChanged: (value) => watermarkService.setEnabled(value),
+          // Stream Quality Info
+          Consumer<LiveService>(
+            builder: (context, liveService, child) {
+              return ListTile(
+                leading: const Icon(Icons.high_quality),
+                title: const Text('Stream Quality'),
+                subtitle: Text(
+                  '${AppConfig.defaultResolution['width']}x${AppConfig.defaultResolution['height']} @ ${AppConfig.defaultBitrate} kbps',
+                ),
               );
             },
           ),
