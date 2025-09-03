@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:rtmp_broadcaster/camera.dart';
 import '../../config.dart';
@@ -24,6 +25,11 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   @override
   void initState() {
     super.initState();
+    // Force landscape orientation for this screen
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     _initializeAnimations();
     _initializeStreaming();
   }
@@ -52,6 +58,13 @@ class _GoLiveScreenState extends State<GoLiveScreen>
 
   @override
   void dispose() {
+    // Restore orientation to all when leaving the screen
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     _pulseController.dispose();
     super.dispose();
   }

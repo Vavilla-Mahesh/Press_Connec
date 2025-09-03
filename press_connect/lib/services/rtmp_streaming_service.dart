@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:rtmp_broadcaster/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -36,6 +37,12 @@ class RTMPStreamingService extends ChangeNotifier {
     _setState(StreamingState.initializing);
 
     try {
+      // Force landscape orientation for streaming
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+
       // Request permissions
       final cameraPermission = await Permission.camera.request();
       final microphonePermission = await Permission.microphone.request();
@@ -275,6 +282,13 @@ class RTMPStreamingService extends ChangeNotifier {
 
   @override
   void dispose() {
+    // Restore orientation to all when disposing
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     _cameraController?.dispose();
     super.dispose();
   }
