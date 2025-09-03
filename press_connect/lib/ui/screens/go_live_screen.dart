@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:camera/camera.dart';
+import 'package:rtmp_broadcaster/camera.dart';
 import '../../config.dart';
 import '../../services/live_service.dart';
 import '../../services/theme_service.dart';
@@ -98,9 +98,9 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                           builder: (context, liveService, child) {
                             final streamingService = liveService.streamingService;
                             
-                            if (streamingService.isCameraInitialized && streamingService.cameraController != null) {
+                            if (streamingService.isCameraInitialized && streamingService.camera != null) {
                               return SizedBox.expand(
-                                child: CameraPreview(streamingService.cameraController!),
+                                child: CameraPreview(camera: streamingService.camera!),
                               );
                             } else {
                               return Container(

@@ -23,7 +23,7 @@ class LiveStreamInfo {
     this.broadcastId,
   });
 
-  String get rtmpUrl => '$ingestUrl/$streamKey';
+  String get rtmpUrl => '$ingestUrl$streamKey';
 
   factory LiveStreamInfo.fromJson(Map<String, dynamic> json) {
     return LiveStreamInfo(
