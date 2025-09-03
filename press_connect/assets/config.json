@@ -1,0 +1,30 @@
+{
+  "backendBaseUrl": "https://71c8e110ec30.ngrok-free.app",
+  "googleClientId": "448534839228-lfc9cvvmi854ap3f94on6og8efedq8a3.apps.googleusercontent.com",
+  "redirectUri": "com.example.press_connect:/oauth2redirect",
+  "youtubeScopes": [
+    "openid",
+    "email",
+    "profile",
+    "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.upload"
+  ],
+  "app": {
+    "name": "Press Connect",
+    "version": "1.0.0"
+  },
+  "streaming": {
+    "defaultBitrate": 8000,
+    "defaultResolution": {
+      "width": 1920,
+      "height": 1080
+    }
+  },
+  "watermark": {
+    "defaultWatermarkOpacity": 0.5,
+    "minWatermarkOpacity": 0.1,
+    "maxWatermarkOpacity": 1.0,
+    "defaultWatermarkPath": "assets/watermark.png"
+  }
+}
