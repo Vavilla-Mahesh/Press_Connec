@@ -1,0 +1,77 @@
+{
+  "backendBaseUrl": "https://85696a28bf05.ngrok-free.app",
+  "googleClientId": "448534839228-lfc9cvvmi854ap3f94on6og8efedq8a3.apps.googleusercontent.com",
+  "redirectUri": "com.example.press_connect:/oauth2redirect",
+  "youtubeScopes": [
+    "openid",
+    "email",
+    "profile",
+    "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.upload"
+  ],
+  "app": {
+    "name": "Press Connect",
+    "version": "1.0.0"
+  },
+  "streaming": {
+    "defaultBitrate": 2500000,
+    "maxBitrate": 4000000,
+    "minBitrate": 1000000,
+    "defaultResolution": {
+      "width": 1280,
+      "height": 720
+    },
+    "portraitResolution": {
+      "width": 720,
+      "height": 1280
+    },
+    "landscapeResolution": {
+      "width": 1280,
+      "height": 720
+    },
+    "frameRate": 30,
+    "keyFrameInterval": 2,
+    "audioSettings": {
+      "sampleRate": 44100,
+      "bitrate": 128000,
+      "channels": 2
+    },
+    "orientationHandling": {
+      "autoRotate": false,
+      "lockOrientation": true,
+      "preferredOrientation": "landscape"
+    }
+  },
+  "watermark": {
+    "defaultWatermarkOpacity": 0.5,
+    "minWatermarkOpacity": 0.1,
+    "maxWatermarkOpacity": 1.0,
+    "defaultWatermarkPath": "assets/watermark.png",
+    "position": {
+      "x": 0.85,
+      "y": 0.05
+    },
+    "size": {
+      "width": 120,
+      "height": 40
+    }
+  },
+  "camera": {
+    "preferredCamera": "back",
+    "allowCameraSwitching": true,
+    "resolutionPreset": "high",
+    "enableAudio": true,
+    "enableFlash": false,
+    "focusMode": "auto",
+    "exposureMode": "auto"
+  },
+  "youtube": {
+    "autoGoLive": true,
+    "defaultPrivacy": "public",
+    "enableLowLatency": false,
+    "enableDvr": true,
+    "enableAutoStart": true,
+    "enableAutoStop": true
+  }
+}
