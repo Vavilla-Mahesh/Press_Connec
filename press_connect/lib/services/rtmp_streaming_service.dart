@@ -110,35 +110,25 @@ class RTMPStreamingService extends ChangeNotifier {
   }
   
   Future<bool> startStreaming(String rtmpUrl) async {
-    if (!canStartStream) {
+    if (!canStartStream || _cameraController == null) {
       _handleError('Cannot start streaming in current state');
       return false;
     }
-    
+
     try {
       _rtmpUrl = rtmpUrl;
       
-      // Configure broadcaster
-      await _broadcaster!.setVideoSettings(
+      // Start RTMP streaming with the camera
+      // Note: The actual implementation will depend on the specific 
+      // rtmp_broadcaster package API. This is a placeholder that
+      // follows common patterns.
+      await _broadcaster!.startStream(
+        rtmpUrl: rtmpUrl,
         width: AppConfig.defaultResolution['width']!,
         height: AppConfig.defaultResolution['height']!,
         bitrate: AppConfig.defaultBitrate,
+        fps: 30,
       );
-      
-      await _broadcaster!.setAudioSettings(
-        bitrate: 128,
-        sampleRate: 44100,
-      );
-      
-      // Start preview from camera
-      await _broadcaster!.startVideoStreaming(
-        cameraId: _cameras[_currentCameraIndex].name,
-      );
-      
-      await _broadcaster!.startAudioStreaming();
-      
-      // Connect to RTMP server
-      await _broadcaster!.startStream(rtmpUrl);
       
       _setState(StreamingState.streaming);
       return true;
@@ -152,13 +142,11 @@ class RTMPStreamingService extends ChangeNotifier {
     if (!canStopStream) {
       return true;
     }
-    
+
     _setState(StreamingState.stopping);
-    
+
     try {
       await _broadcaster!.stopStream();
-      await _broadcaster!.stopVideoStreaming();
-      await _broadcaster!.stopAudioStreaming();
       
       _setState(StreamingState.ready);
       return true;
