@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:camera/camera.dart';
-import 'package:rtmp_broadcaster/rtmp_broadcaster.dart';
+import 'package:rtmp_broadcaster/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../config.dart';
 
@@ -14,24 +13,19 @@ enum StreamingState {
 }
 
 class RTMPStreamingService extends ChangeNotifier {
-  RTMPBroadcaster? _broadcaster;
-  CameraController? _cameraController;
+  Camera? _camera;
   StreamingState _state = StreamingState.idle;
   String? _errorMessage;
   String? _rtmpUrl;
-  List<CameraDescription> _cameras = [];
-  int _currentCameraIndex = 0;
   
   // Getters
   StreamingState get state => _state;
   String? get errorMessage => _errorMessage;
-  CameraController? get cameraController => _cameraController;
+  Camera? get camera => _camera;
   bool get isStreaming => _state == StreamingState.streaming;
   bool get canStartStream => _state == StreamingState.ready && _rtmpUrl != null;
   bool get canStopStream => _state == StreamingState.streaming;
-  bool get isCameraInitialized => _cameraController?.value.isInitialized ?? false;
-  List<CameraDescription> get cameras => _cameras;
-  int get currentCameraIndex => _currentCameraIndex;
+  bool get isCameraInitialized => _camera != null;
   
   Future<bool> initialize() async {
     if (_state != StreamingState.idle) {
@@ -55,18 +49,12 @@ class RTMPStreamingService extends ChangeNotifier {
         return false;
       }
       
-      // Initialize cameras
-      _cameras = await availableCameras();
-      if (_cameras.isEmpty) {
-        _handleError('No cameras available');
-        return false;
-      }
-      
-      // Initialize camera controller
-      await _initializeCamera();
-      
-      // Initialize RTMP broadcaster
-      _broadcaster = RTMPBroadcaster();
+      // Initialize RTMP broadcaster camera
+      _camera = Camera();
+      await _camera!.initialize(
+        preset: CameraPreset.hd720,
+        enableAudio: true,
+      );
       
       _setState(StreamingState.ready);
       return true;
@@ -76,32 +64,13 @@ class RTMPStreamingService extends ChangeNotifier {
     }
   }
   
-  Future<void> _initializeCamera() async {
-    try {
-      _cameraController?.dispose();
-      
-      _cameraController = CameraController(
-        _cameras[_currentCameraIndex],
-        ResolutionPreset.high,
-        enableAudio: true,
-        imageFormatGroup: ImageFormatGroup.jpeg,
-      );
-      
-      await _cameraController!.initialize();
-      notifyListeners();
-    } catch (e) {
-      throw Exception('Camera initialization failed: $e');
-    }
-  }
-  
   Future<bool> switchCamera() async {
-    if (_cameras.length <= 1 || _state == StreamingState.streaming) {
+    if (_state == StreamingState.streaming) {
       return false;
     }
     
     try {
-      _currentCameraIndex = (_currentCameraIndex + 1) % _cameras.length;
-      await _initializeCamera();
+      await _camera?.switchCamera();
       return true;
     } catch (e) {
       _handleError('Failed to switch camera: $e');
@@ -110,7 +79,7 @@ class RTMPStreamingService extends ChangeNotifier {
   }
   
   Future<bool> startStreaming(String rtmpUrl) async {
-    if (!canStartStream || _cameraController == null) {
+    if (!canStartStream || _camera == null) {
       _handleError('Cannot start streaming in current state');
       return false;
     }
@@ -119,15 +88,9 @@ class RTMPStreamingService extends ChangeNotifier {
       _rtmpUrl = rtmpUrl;
       
       // Start RTMP streaming with the camera
-      // Note: The actual implementation will depend on the specific 
-      // rtmp_broadcaster package API. This is a placeholder that
-      // follows common patterns.
-      await _broadcaster!.startStream(
-        rtmpUrl: rtmpUrl,
-        width: AppConfig.defaultResolution['width']!,
-        height: AppConfig.defaultResolution['height']!,
+      await _camera!.startStreaming(
+        url: rtmpUrl,
         bitrate: AppConfig.defaultBitrate,
-        fps: 30,
       );
       
       _setState(StreamingState.streaming);
@@ -146,7 +109,7 @@ class RTMPStreamingService extends ChangeNotifier {
     _setState(StreamingState.stopping);
 
     try {
-      await _broadcaster!.stopStream();
+      await _camera!.stopStreaming();
       
       _setState(StreamingState.ready);
       return true;
@@ -193,8 +156,7 @@ class RTMPStreamingService extends ChangeNotifier {
   
   @override
   void dispose() {
-    _broadcaster?.dispose();
-    _cameraController?.dispose();
+    _camera?.dispose();
     super.dispose();
   }
 }
