@@ -1,6 +1,6 @@
 {
   "backendBaseUrl": "https://5ae8249238d0.ngrok-free.app",
-  "googleClientId": "448534839228-2sjp29dths4rm3j3e2vc0o0b1ea7qh0n.apps.googleusercontent.com",
+  "googleClientId": "448534839228-lfc9cvvmi854ap3f94on6og8efedq8a3.apps.googleusercontent.com",
   "redirectUri": "com.example.press_connect:/oauth2redirect",
   "youtubeScopes": [
     "openid",
