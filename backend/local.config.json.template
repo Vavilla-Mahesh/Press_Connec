@@ -1,0 +1,10 @@
+{
+  "jwt": {
+    "secret": "REPLACE_WITH_SECURE_JWT_SECRET"
+  },
+  "oauth": {
+    "clientId": "YOUR_GOOGLE_CLIENT_ID.googleusercontent.com",
+    "clientSecret": "YOUR_GOOGLE_CLIENT_SECRET",
+    "redirectUri": "urn:ietf:wg:oauth:2.0:oob"
+  }
+}
