@@ -1,0 +1,15 @@
+{
+  "appLogin": [
+    { "username": "admin", "password": "1234" },
+    { "username": "moderator", "password": "5678" }
+  ],
+  "oauth": {
+    "clientId": "448534839228-lfc9cvvmi854ap3f94on6og8efedq8a3.apps.googleusercontent.com",
+    "clientSecret": "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",
+    "redirectUri": "https://a29b381ba39a.ngrok-free.app/oauth2redirect"
+  },
+  "jwt": {
+    "secret": "your-jwt-secret-key-here",
+    "expiresIn": "24h"
+  }
+}
