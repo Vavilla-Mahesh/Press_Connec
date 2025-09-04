@@ -3,7 +3,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:dio/dio.dart';
 import 'dart:async';
 import '../config.dart';
-import 'rtmp_streaming_service.dart';
 
 enum StreamState {
   idle,
@@ -42,7 +41,6 @@ class LiveStreamInfo {
 class LiveService extends ChangeNotifier {
   final _secureStorage = const FlutterSecureStorage();
   final _dio = Dio();
-  final RTMPStreamingService _streamingService = RTMPStreamingService();
 
   StreamState _streamState = StreamState.idle;
   String? _errorMessage;
@@ -58,7 +56,6 @@ class LiveService extends ChangeNotifier {
   bool get isLive => _streamState == StreamState.live;
   bool get canStartStream => _streamState == StreamState.idle;
   bool get canStopStream => _streamState == StreamState.live || _streamState == StreamState.starting;
-  RTMPStreamingService get streamingService => _streamingService;
 
   Future<bool> createLiveStream() async {
     if (_streamState != StreamState.idle) {
@@ -108,39 +105,16 @@ class LiveService extends ChangeNotifier {
       return false;
     }
 
-    if (kDebugMode) print('startStream: Using RTMP URL: ${_currentStream?.rtmpUrl}');
+    if (kDebugMode) print('startStream: Stream key: ${_currentStream?.streamKey}');
 
     _setState(StreamState.starting);
     _retryCount = 0;
 
     try {
-      // Initialize streaming service if not already done
-      if (_streamingService.state == StreamingState.idle) {
-        final initialized = await _streamingService.initialize();
-        if (!initialized) {
-          _handleError(_streamingService.errorMessage ?? 'Failed to initialize streaming');
-          return false;
-        }
-      }
-
-      // Start RTMP streaming
-      final success = await _streamingService.startStreaming(_currentStream!.rtmpUrl);
-      if (success) {
-        if (kDebugMode) print('RTMP streaming started successfully');
-
-        // Start auto-live monitoring if enabled
-        if (_currentStream!.autoLiveEnabled == true && _currentStream!.broadcastId != null) {
-          _startAutoLiveMonitoring();
-        } else {
-          // If no auto-live, just set to live immediately
-          _setState(StreamState.live);
-        }
-
-        return true;
-      } else {
-        _handleError(_streamingService.errorMessage ?? 'Failed to start streaming');
-        return false;
-      }
+      // Since we're using ApiVideo Live Stream service separately,
+      // we just mark the backend stream as live
+      _setState(StreamState.live);
+      return true;
     } catch (e) {
       _handleError('Failed to start stream: $e');
       return false;
@@ -232,10 +206,7 @@ class LiveService extends ChangeNotifier {
     _autoLiveTimer = null;
 
     try {
-      // Stop RTMP streaming first
-      await _streamingService.stopStreaming();
-
-      // Then end the YouTube broadcast
+      // End the YouTube broadcast
       if (_currentStream?.broadcastId != null) {
         final sessionToken = await _secureStorage.read(key: 'app_session');
         if (sessionToken != null) {
@@ -249,14 +220,14 @@ class LiveService extends ChangeNotifier {
                 headers: {
                   'Authorization': 'Bearer $sessionToken',
                 },
-                sendTimeout: Duration(seconds: 10),
-                receiveTimeout: Duration(seconds: 10),
+                sendTimeout: const Duration(seconds: 10),
+                receiveTimeout: const Duration(seconds: 10),
               ),
             );
             if (kDebugMode) print('YouTube broadcast ended successfully');
           } catch (e) {
             if (kDebugMode) print('Failed to end YouTube broadcast: $e');
-            // Continue anyway - RTMP is stopped
+            // Continue anyway
           }
         }
       }
@@ -278,7 +249,6 @@ class LiveService extends ChangeNotifier {
     _retryCount = 0;
     _setState(StreamState.idle);
     _errorMessage = null;
-    _streamingService.reset();
   }
 
   void _setState(StreamState state) {
@@ -310,7 +280,6 @@ class LiveService extends ChangeNotifier {
   @override
   void dispose() {
     _autoLiveTimer?.cancel();
-    _streamingService.dispose();
     super.dispose();
   }
 }
