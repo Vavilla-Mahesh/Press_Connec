@@ -41,13 +41,14 @@ dependencies:
 
   # Network & HTTP
   dio: ^5.4.3+1
+  connectivity_plus: ^6.0.5
 
   # Authentication & Security
   google_sign_in: ^6.2.1
   flutter_secure_storage: ^9.2.2
 
   # Live Streaming & Media
-  rtmp_broadcaster: ^2.3.4
+  apivideo_live_stream: ^1.2.10
   camera: ^0.10.5+9
   permission_handler: ^11.3.1
 
