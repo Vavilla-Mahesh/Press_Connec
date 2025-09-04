@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "766117263311",
+    "project_id": "pressconnect-6b306",
+    "storage_bucket": "pressconnect-6b306.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:766117263311:android:6075f1dc40c80f70e9c4ba",
+        "android_client_info": {
+          "package_name": "com.example.press_connect"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3VNsLRtkwEsfczq9cDUXaC5PdbtkCCEo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
