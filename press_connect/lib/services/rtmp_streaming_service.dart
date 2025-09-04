@@ -20,9 +20,6 @@ class RTMPStreamingService extends ChangeNotifier {
   List<CameraDescription> _cameras = [];
   int _selectedCameraIndex = 0;
 
-  // Track device orientation separately from app orientation
-  DeviceOrientation _currentDeviceOrientation = DeviceOrientation.landscapeLeft;
-
   // Getters
   StreamingState get state => _state;
   String? get errorMessage => _errorMessage;
@@ -40,12 +37,6 @@ class RTMPStreamingService extends ChangeNotifier {
     _setState(StreamingState.initializing);
 
     try {
-      // Set app to landscape but don't lock device orientation yet
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.landscapeLeft,
-        DeviceOrientation.landscapeRight,
-      ]);
-
       // Request permissions
       final cameraPermission = await Permission.camera.request();
       final microphonePermission = await Permission.microphone.request();
@@ -91,14 +82,14 @@ class RTMPStreamingService extends ChangeNotifier {
     // Dispose previous controller if exists
     await _cameraController?.dispose();
 
-    // Initialize camera controller with specific settings
+    // Initialize camera controller with specific settings for landscape
     _cameraController = CameraController(
       _cameras[cameraIndex],
       ResolutionPreset.high,
       enableAudio: true,
       androidUseOpenGL: true,
-      // Force the camera to initialize in a way that's compatible with landscape streaming
-      // imageFormatGroup: ImageFormatGroup.yuv420,
+      // Use BGR8888 for consistent landscape orientation
+      imageFormatGroup: ImageFormatGroup.bgra8888,
     );
 
     // Add listener for camera events
@@ -237,59 +228,10 @@ class RTMPStreamingService extends ChangeNotifier {
   }
 
   // Method to get the correct preview orientation for UI display
+  // Since we're forcing landscape, no rotation needed
   double getPreviewRotationRadians() {
-    if (_cameraController == null) {
-      return 0.0;
-    }
-
-
-    final camera = _cameras[_selectedCameraIndex];
-    final sensorOrientation = camera.sensorOrientation ?? 0;
-    final isBackCamera = camera.lensDirection == CameraLensDirection.back;
-
-    // Calculate rotation needed for correct preview display in landscape app
-    double rotationDegrees = 0.0;
-
-    if (isBackCamera) {
-      // For back camera: most Android devices have sensor at 90°
-      // We need to rotate to show correctly in landscape UI
-      switch (sensorOrientation) {
-        case 0:
-          rotationDegrees = 90.0; // Portrait sensor, rotate for landscape
-          break;
-        case 90:
-          rotationDegrees = 0.0; // Already landscape oriented
-          break;
-        case 180:
-          rotationDegrees = 270.0;
-          break;
-        case 270:
-          rotationDegrees = 180.0;
-          break;
-      }
-    } else {
-      // For front camera: usually needs different rotation due to mirroring
-      switch (sensorOrientation) {
-        case 0:
-          rotationDegrees = 270.0;
-          break;
-        case 90:
-          rotationDegrees = 180.0;
-          break;
-        case 180:
-          rotationDegrees = 90.0;
-          break;
-        case 270:
-          rotationDegrees = 0.0;
-          break;
-      }
-    }
-
-    if (kDebugMode) {
-      print('Preview rotation: $rotationDegrees degrees for sensor orientation: $sensorOrientation, back camera: $isBackCamera');
-    }
-
-    return rotationDegrees * (3.141592653589793 / 180.0); // Convert to radians
+    // Always return 0 rotation since app is locked to landscape
+    return 0.0;
   }
 
   void setRtmpUrl(String url) {
@@ -350,13 +292,7 @@ class RTMPStreamingService extends ChangeNotifier {
 
   @override
   void dispose() {
-    // Restore orientation to all when disposing
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    // No need to restore orientation since app is landscape-only
     _cameraController?.dispose();
     super.dispose();
   }

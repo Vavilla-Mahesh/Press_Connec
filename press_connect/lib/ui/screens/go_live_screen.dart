@@ -25,11 +25,6 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   @override
   void initState() {
     super.initState();
-    // Force landscape orientation for this screen
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
     _initializeAnimations();
     _initializeStreaming();
   }
@@ -58,22 +53,14 @@ class _GoLiveScreenState extends State<GoLiveScreen>
 
   @override
   void dispose() {
-    // Restore orientation to all when leaving the screen
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
+    // No need to restore orientation since app is landscape-only
     _pulseController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
-    final isLandscape = screenSize.width > screenSize.height;
-
+    // App is now landscape-only, so we always use landscape layout
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -88,9 +75,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
       ),
       body: AnimatedGradientBackground(
         child: SafeArea(
-          child: isLandscape
-              ? _buildLandscapeLayout()
-              : _buildPortraitLayout(),
+          child: _buildLandscapeLayout(),
         ),
       ),
     );
@@ -118,7 +103,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               borderRadius: BorderRadius.circular(20),
               child: Stack(
                 children: [
-                  // Camera Preview - Removed rotation transform
+                  // Camera Preview - No rotation needed since app is landscape-only
                   Consumer<LiveService>(
                     builder: (context, liveService, child) {
                       final streamingService = liveService.streamingService;
@@ -165,90 +150,6 @@ class _GoLiveScreenState extends State<GoLiveScreen>
             child: SingleChildScrollView(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildStreamStatusCard(),
-                  const SizedBox(height: 16),
-                  _buildControlButtons(),
-                  _buildErrorDisplay(),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPortraitLayout() {
-    return Column(
-      children: [
-        // Camera Preview Section
-        Expanded(
-          flex: 3,
-          child: Container(
-            margin: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Color.fromARGB((0.3 * 255).toInt(), 0, 0, 0),
-                  blurRadius: 15,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: Stack(
-                children: [
-                  // Camera Preview - Removed rotation transform
-                  Consumer<LiveService>(
-                    builder: (context, liveService, child) {
-                      final streamingService = liveService.streamingService;
-
-                      if (streamingService.isCameraInitialized &&
-                          streamingService.cameraController != null &&
-                          streamingService.cameraController!.value.isInitialized==true) {
-                        return SizedBox.expand(
-                          child: CameraPreview(streamingService.cameraController!),
-                        );
-                      } else {
-                        return Container(
-                          color: Colors.black,
-                          child: const Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                CircularProgressIndicator(),
-                                SizedBox(height: 16),
-                                Text(
-                                  'Initializing camera...',
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                  _buildLiveIndicator(),
-                  _buildCameraInfo(),
-                ],
-              ),
-            ),
-          ),
-        ),
-
-        // Controls Section
-        Flexible(
-          flex: 2,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   _buildStreamStatusCard(),
                   const SizedBox(height: 16),
