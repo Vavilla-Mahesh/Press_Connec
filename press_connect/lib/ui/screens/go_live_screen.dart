@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:camera/camera.dart';
+import 'package:apivideo_live_stream/apivideo_live_stream.dart';
 import '../../services/streaming_service.dart';
 import '../../services/youtube_api_service.dart';
 import '../../services/camera_service.dart';
@@ -54,9 +54,8 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     final cameraService = Provider.of<CameraService>(context, listen: false);
     final connectionService = Provider.of<ConnectionService>(context, listen: false);
 
-    // Initialize camera service with landscape settings
+    // Initialize camera service (just for permissions and orientation)
     await cameraService.initialize(
-      resolution: ResolutionPreset.high,
       preferredCamera: CameraType.back,
     );
 
@@ -156,13 +155,16 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   }
 
   Widget _buildCameraPreview() {
-    return Consumer<CameraService>(
-      builder: (context, cameraService, child) {
-        if (cameraService.isInitialized && cameraService.controller != null) {
+    return Consumer<StreamingService>(
+      builder: (context, streamingService, child) {
+        if (streamingService.isInitialized && streamingService.controller != null) {
           return SizedBox.expand(
             child: AspectRatio(
               aspectRatio: 16 / 9, // Force 16:9 landscape aspect ratio
-              child: CameraPreview(cameraService.controller!),
+              child: ApiVideoCameraPreview(
+                controller: streamingService.controller!,
+                enableZoomOnPinch: true,
+              ),
             ),
           );
         } else {
@@ -175,16 +177,16 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                   const CircularProgressIndicator(),
                   const SizedBox(height: 16),
                   Text(
-                    cameraService.state == CameraState.error 
-                        ? 'Camera Error' 
+                    streamingService.state == StreamingState.error 
+                        ? 'Streaming Error' 
                         : 'Initializing camera...',
                     style: const TextStyle(color: Colors.white),
                   ),
-                  if (cameraService.errorMessage != null)
+                  if (streamingService.errorMessage != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
-                        cameraService.errorMessage!,
+                        streamingService.errorMessage!,
                         style: const TextStyle(color: Colors.red, fontSize: 12),
                         textAlign: TextAlign.center,
                       ),
@@ -261,9 +263,9 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   }
 
   Widget _buildCameraInfo() {
-    return Consumer<CameraService>(
-      builder: (context, cameraService, child) {
-        if (!cameraService.isInitialized) return const SizedBox.shrink();
+    return Consumer<StreamingService>(
+      builder: (context, streamingService, child) {
+        if (!streamingService.isInitialized) return const SizedBox.shrink();
 
         return Positioned(
           top: 16,
@@ -275,7 +277,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              cameraService.currentCameraType == CameraType.back ? 'BACK' : 'FRONT',
+              'CAMERA', // The apivideo package handles camera switching internally
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 10,
@@ -512,9 +514,9 @@ class _GoLiveScreenState extends State<GoLiveScreen>
           children: [
             // Camera Switch Button
             Expanded(
-              child: Consumer2<CameraService, StreamingService>(
-                builder: (context, cameraService, streamingService, child) {
-                  final canSwitch = cameraService.canSwitchCamera && 
+              child: Consumer<StreamingService>(
+                builder: (context, streamingService, child) {
+                  final canSwitch = streamingService.isInitialized && 
                                    !streamingService.isStreaming;
 
                   return Container(
@@ -855,8 +857,8 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   }
 
   Future<void> _switchCamera() async {
-    final cameraService = Provider.of<CameraService>(context, listen: false);
-    final success = await cameraService.switchCamera();
+    final streamingService = Provider.of<StreamingService>(context, listen: false);
+    final success = await streamingService.switchCamera();
 
     if (!success && mounted) {
       _showError('Failed to switch camera');

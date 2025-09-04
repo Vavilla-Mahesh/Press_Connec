@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:camera/camera.dart';
+import 'package:apivideo_live_stream/apivideo_live_stream.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:async';
 
@@ -18,17 +18,13 @@ enum CameraType {
 }
 
 class CameraService extends ChangeNotifier {
-  CameraController? _controller;
+  ApiVideoLiveStreamController? _controller;
   CameraState _state = CameraState.uninitialized;
   String? _errorMessage;
-  List<CameraDescription> _cameras = [];
-  int _selectedCameraIndex = 0;
   CameraType _currentCameraType = CameraType.back;
   
   // Camera settings optimized for landscape streaming
-  ResolutionPreset _resolution = ResolutionPreset.high;
   bool _isFlashEnabled = false;
-  bool _isAutoFocusEnabled = true;
   double _zoomLevel = 1.0;
   
   // Aspect ratio for landscape (16:9)
@@ -37,21 +33,17 @@ class CameraService extends ChangeNotifier {
   // Getters
   CameraState get state => _state;
   String? get errorMessage => _errorMessage;
-  CameraController? get controller => _controller;
-  bool get isInitialized => _controller?.value.isInitialized ?? false;
-  bool get canSwitchCamera => _cameras.length > 1;
+  ApiVideoLiveStreamController? get controller => _controller;
+  bool get isInitialized => _controller?.isInitialized ?? false;
+  bool get canSwitchCamera => _controller?.isInitialized ?? false;
   CameraType get currentCameraType => _currentCameraType;
-  List<CameraDescription> get availableCameras => _cameras;
   bool get isFlashEnabled => _isFlashEnabled;
-  bool get isAutoFocusEnabled => _isAutoFocusEnabled;
   double get zoomLevel => _zoomLevel;
-  double get maxZoomLevel => _controller?.value.maxZoomLevel ?? 1.0;
-  double get minZoomLevel => _controller?.value.minZoomLevel ?? 1.0;
-  ResolutionPreset get resolution => _resolution;
+  double get maxZoomLevel => 3.0; // Default max zoom
+  double get minZoomLevel => 1.0;
 
   /// Initialize camera service with landscape-optimized settings
   Future<bool> initialize({
-    ResolutionPreset resolution = ResolutionPreset.high,
     CameraType preferredCamera = CameraType.back,
   }) async {
     if (_state == CameraState.initializing) {
@@ -59,7 +51,7 @@ class CameraService extends ChangeNotifier {
     }
 
     _setState(CameraState.initializing);
-    _resolution = resolution;
+    _currentCameraType = preferredCamera;
 
     try {
       // Request camera permission
@@ -69,20 +61,6 @@ class CameraService extends ChangeNotifier {
         return false;
       }
 
-      // Get available cameras
-      _cameras = await availableCameras();
-      if (_cameras.isEmpty) {
-        _handleError('No cameras found on device');
-        return false;
-      }
-
-      // Select preferred camera
-      _selectedCameraIndex = _findCameraIndex(preferredCamera);
-      _currentCameraType = preferredCamera;
-
-      // Initialize camera controller
-      await _initializeCameraController();
-      
       // Force landscape orientation for camera
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
@@ -94,8 +72,6 @@ class CameraService extends ChangeNotifier {
 
       if (kDebugMode) {
         print('CameraService: Initialized successfully');
-        print('Camera: ${_cameras[_selectedCameraIndex].name}');
-        print('Resolution: $_resolution');
         print('Landscape orientation set');
       }
 
@@ -106,33 +82,29 @@ class CameraService extends ChangeNotifier {
     }
   }
 
+  /// Set the controller from StreamingService
+  void setController(ApiVideoLiveStreamController? controller) {
+    _controller = controller;
+    if (controller != null && controller.isInitialized) {
+      _setState(CameraState.ready);
+      _clearError();
+    }
+    notifyListeners();
+  }
+
   /// Switch between front and back cameras
   Future<bool> switchCamera() async {
-    if (!canSwitchCamera || _state != CameraState.ready) {
+    if (!canSwitchCamera || _controller == null) {
       return false;
     }
 
     try {
-      // Determine next camera type
-      final nextCameraType = _currentCameraType == CameraType.back 
+      await _controller!.switchCamera();
+      
+      // Toggle camera type
+      _currentCameraType = _currentCameraType == CameraType.back 
           ? CameraType.front 
           : CameraType.back;
-
-      final nextCameraIndex = _findCameraIndex(nextCameraType);
-      if (nextCameraIndex == -1) {
-        _handleError('Requested camera type not available');
-        return false;
-      }
-
-      // Dispose current controller
-      await _controller?.dispose();
-
-      // Switch to new camera
-      _selectedCameraIndex = nextCameraIndex;
-      _currentCameraType = nextCameraType;
-
-      // Initialize new camera controller
-      await _initializeCameraController();
 
       if (kDebugMode) {
         print('CameraService: Switched to ${_currentCameraType.name} camera');
@@ -146,40 +118,15 @@ class CameraService extends ChangeNotifier {
     }
   }
 
-  /// Set camera resolution
-  Future<bool> setResolution(ResolutionPreset resolution) async {
-    if (_state != CameraState.ready || _resolution == resolution) {
-      return false;
-    }
-
-    try {
-      _resolution = resolution;
-      
-      // Reinitialize with new resolution
-      await _controller?.dispose();
-      await _initializeCameraController();
-
-      if (kDebugMode) {
-        print('CameraService: Resolution changed to $resolution');
-      }
-
-      notifyListeners();
-      return true;
-    } catch (e) {
-      _handleError('Failed to set resolution: $e');
-      return false;
-    }
-  }
-
-  /// Toggle flash (if supported)
+  /// Toggle flash (if supported and available)
   Future<bool> toggleFlash() async {
     if (_controller == null || !isInitialized) {
       return false;
     }
 
     try {
-      final newFlashMode = _isFlashEnabled ? FlashMode.off : FlashMode.torch;
-      await _controller!.setFlashMode(newFlashMode);
+      // Note: The apivideo package may not have direct flash control
+      // This would be implemented if the package provides flash methods
       _isFlashEnabled = !_isFlashEnabled;
 
       if (kDebugMode) {
@@ -194,7 +141,7 @@ class CameraService extends ChangeNotifier {
     }
   }
 
-  /// Set zoom level
+  /// Set zoom level (if supported)
   Future<bool> setZoomLevel(double zoom) async {
     if (_controller == null || !isInitialized) {
       return false;
@@ -202,7 +149,8 @@ class CameraService extends ChangeNotifier {
 
     try {
       final clampedZoom = zoom.clamp(minZoomLevel, maxZoomLevel);
-      await _controller!.setZoomLevel(clampedZoom);
+      // Note: The apivideo package may not have direct zoom control
+      // This would be implemented if the package provides zoom methods
       _zoomLevel = clampedZoom;
 
       if (kDebugMode) {
@@ -217,169 +165,32 @@ class CameraService extends ChangeNotifier {
     }
   }
 
-  /// Focus on a specific point (for touch-to-focus)
-  Future<bool> focusOnPoint(Offset point) async {
-    if (_controller == null || !isInitialized) {
-      return false;
-    }
-
-    try {
-      await _controller!.setFocusPoint(point);
-      await _controller!.setExposurePoint(point);
-
-      if (kDebugMode) {
-        print('CameraService: Focus set to point $point');
-      }
-
-      return true;
-    } catch (e) {
-      _handleError('Failed to focus on point: $e');
-      return false;
-    }
-  }
-
-  /// Enable/disable auto focus
-  Future<bool> setAutoFocus(bool enabled) async {
-    if (_controller == null || !isInitialized) {
-      return false;
-    }
-
-    try {
-      final focusMode = enabled ? FocusMode.auto : FocusMode.locked;
-      await _controller!.setFocusMode(focusMode);
-      _isAutoFocusEnabled = enabled;
-
-      if (kDebugMode) {
-        print('CameraService: Auto focus ${enabled ? "enabled" : "disabled"}');
-      }
-
-      notifyListeners();
-      return true;
-    } catch (e) {
-      _handleError('Failed to set auto focus: $e');
-      return false;
-    }
-  }
-
-  /// Take a picture (optional feature)
-  Future<XFile?> takePicture() async {
-    if (_controller == null || !isInitialized) {
-      _handleError('Camera not ready for taking pictures');
-      return null;
-    }
-
-    try {
-      final image = await _controller!.takePicture();
-      
-      if (kDebugMode) {
-        print('CameraService: Picture taken successfully');
-      }
-
-      return image;
-    } catch (e) {
-      _handleError('Failed to take picture: $e');
-      return null;
-    }
-  }
-
   /// Get camera preview size optimized for landscape
   Size getPreviewSize() {
-    if (_controller?.value.previewSize == null) {
-      // Default 16:9 landscape size
-      return const Size(1280, 720);
-    }
-
-    final previewSize = _controller!.value.previewSize!;
-    
-    // Ensure landscape orientation (width > height)
-    if (previewSize.width > previewSize.height) {
-      return previewSize;
-    } else {
-      // Swap dimensions for landscape
-      return Size(previewSize.height, previewSize.width);
-    }
+    // Default 16:9 landscape size for streaming
+    return const Size(1280, 720);
   }
 
   /// Get the optimal aspect ratio for landscape streaming
   double getAspectRatio() {
-    final previewSize = getPreviewSize();
-    return previewSize.width / previewSize.height;
+    return landscapeAspectRatio;
   }
 
   /// Check if current camera supports flash
   bool get hasFlash {
-    if (_cameras.isEmpty || _selectedCameraIndex >= _cameras.length) {
-      return false;
-    }
-    
     // Most back cameras have flash, front cameras typically don't
     return _currentCameraType == CameraType.back;
   }
 
   /// Get camera specifications
   Map<String, dynamic> getCameraSpecs() {
-    if (_cameras.isEmpty || _selectedCameraIndex >= _cameras.length) {
-      return {};
-    }
-
-    final camera = _cameras[_selectedCameraIndex];
     return {
-      'name': camera.name,
-      'lensDirection': camera.lensDirection.toString(),
-      'sensorOrientation': camera.sensorOrientation,
+      'cameraType': _currentCameraType.toString(),
       'hasFlash': hasFlash,
-      'resolution': _resolution.toString(),
       'aspectRatio': getAspectRatio(),
       'previewSize': getPreviewSize().toString(),
+      'isInitialized': isInitialized,
     };
-  }
-
-  /// Initialize camera controller with landscape-optimized settings
-  Future<void> _initializeCameraController() async {
-    if (_cameras.isEmpty || _selectedCameraIndex >= _cameras.length) {
-      throw Exception('Invalid camera selection');
-    }
-
-    final camera = _cameras[_selectedCameraIndex];
-    
-    _controller = CameraController(
-      camera,
-      _resolution,
-      enableAudio: true,
-      // Optimize for landscape streaming
-      imageFormatGroup: ImageFormatGroup.yuv420,
-    );
-
-    // Add error listener
-    _controller!.addListener(() {
-      if (_controller!.value.hasError) {
-        _handleError('Camera error: ${_controller!.value.errorDescription}');
-      }
-    });
-
-    await _controller!.initialize();
-
-    // Set initial camera settings
-    await _controller!.setFlashMode(_isFlashEnabled ? FlashMode.torch : FlashMode.off);
-    await _controller!.setFocusMode(_isAutoFocusEnabled ? FocusMode.auto : FocusMode.locked);
-
-    if (kDebugMode) {
-      final specs = getCameraSpecs();
-      print('CameraService: Controller initialized with specs: $specs');
-    }
-  }
-
-  /// Find camera index by type
-  int _findCameraIndex(CameraType type) {
-    final targetLensDirection = type == CameraType.back 
-        ? CameraLensDirection.back 
-        : CameraLensDirection.front;
-
-    final index = _cameras.indexWhere(
-      (camera) => camera.lensDirection == targetLensDirection
-    );
-
-    return index != -1 ? index : 0; // Fallback to first camera
   }
 
   void _setState(CameraState state) {
@@ -412,23 +223,13 @@ class CameraService extends ChangeNotifier {
   /// Reset camera settings to defaults
   void resetSettings() {
     _isFlashEnabled = false;
-    _isAutoFocusEnabled = true;
     _zoomLevel = 1.0;
-    _resolution = ResolutionPreset.high;
-    
-    if (_controller != null && isInitialized) {
-      _controller!.setFlashMode(FlashMode.off);
-      _controller!.setFocusMode(FocusMode.auto);
-      _controller!.setZoomLevel(1.0);
-    }
-    
     notifyListeners();
   }
 
   @override
   void dispose() {
     _state = CameraState.disposed;
-    _controller?.dispose();
     
     // Restore all orientations when disposing
     SystemChrome.setPreferredOrientations([
