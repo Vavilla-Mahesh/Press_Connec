@@ -24,12 +24,12 @@ void main() {
       expect(service.state, StreamingState.idle);
     });
 
-    test('should manage stream key correctly', () {
+    test('should manage RTMP URL correctly', () {
       final service = ApiVideoLiveStreamService();
-      const testStreamKey = 'test-stream-key';
+      const testRtmpUrl = 'rtmp://test.example.com/live/test-stream-key';
       
-      service.setStreamKey(testStreamKey);
-      // Note: streamKey is private, we just test that it doesn't throw
+      service.setRtmpUrl(testRtmpUrl);
+      // Note: rtmpUrl is private, we just test that it doesn't throw
       expect(service.state, StreamingState.idle);
     });
 

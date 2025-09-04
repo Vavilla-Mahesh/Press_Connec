@@ -341,21 +341,30 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                   Row(
                     children: [
                       Expanded(
-                        child: Consumer<ApiVideoLiveStreamService>(
-                          builder: (context, streamService, child) {
+                        child: Consumer2<ApiVideoLiveStreamService, LiveService>(
+                          builder: (context, streamService, liveService, child) {
+                            final isLoading = streamService.state == StreamingState.initializing ||
+                                            streamService.state == StreamingState.stopping ||
+                                            liveService.streamState == StreamState.preparing ||
+                                            liveService.streamState == StreamState.starting;
+                            
+                            final isActive = streamService.isStreaming || liveService.isLive;
+                            
+                            final canStart = streamService.canStartStream && liveService.canStartStream;
+                            final canStop = streamService.canStopStream || liveService.canStopStream;
+                            
                             return AnimatedButton(
-                              onPressed: streamService.canStartStream
+                              onPressed: canStart
                                   ? _handleGoLive
-                                  : streamService.canStopStream
+                                  : canStop
                                       ? _handleStopStream
                                       : null,
-                              gradient: streamService.isStreaming
+                              gradient: isActive
                                   ? LinearGradient(
                                       colors: [Colors.red, Colors.red.shade700],
                                     )
                                   : ThemeService.primaryGradient,
-                              child: streamService.state == StreamingState.initializing ||
-                                      streamService.state == StreamingState.stopping
+                              child: isLoading
                                   ? const SizedBox(
                                       width: 20,
                                       height: 20,
@@ -365,7 +374,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                                       ),
                                     )
                                   : Text(
-                                      streamService.isStreaming ? 'Stop Live' : 'Go Live',
+                                      isActive ? 'Stop Live' : 'Go Live',
                                       style: const TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
@@ -398,27 +407,59 @@ class _GoLiveScreenState extends State<GoLiveScreen>
 
                   const SizedBox(height: 24),
 
-                  // Stream Status
-                  Consumer<ApiVideoLiveStreamService>(
-                    builder: (context, streamService, child) {
-                      if (streamService.errorMessage != null) {
+                  // Stream Status & Error Display
+                  Consumer2<ApiVideoLiveStreamService, LiveService>(
+                    builder: (context, streamService, liveService, child) {
+                      final streamError = streamService.errorMessage;
+                      final liveError = liveService.errorMessage;
+                      final hasError = streamError != null || liveError != null;
+                      
+                      if (hasError) {
                         return GlassCard(
                           padding: const EdgeInsets.all(16),
-                          child: Row(
+                          child: Column(
                             children: [
-                              const Icon(Icons.error, color: Colors.red),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  streamService.errorMessage!,
-                                  style: const TextStyle(color: Colors.red),
+                              if (liveError != null) ...[
+                                Row(
+                                  children: [
+                                    const Icon(Icons.error, color: Colors.red),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Backend: $liveError',
+                                        style: const TextStyle(color: Colors.red),
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: liveService.clearError,
+                                      child: const Text('Dismiss'),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              TextButton(
-                                onPressed: streamService.clearError,
-                                child: const Text('Dismiss'),
-                              ),
+                              ],
+                              if (streamError != null) ...[
+                                if (liveError != null) const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.error, color: Colors.red),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Streaming: $streamError',
+                                        style: const TextStyle(color: Colors.red),
+                                      ),
+                                    ),
+                                    TextButton(
+                                      onPressed: streamService.clearError,
+                                      child: const Text('Dismiss'),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
+                          ),
+                        );
+                      }
                           ),
                         );
                       }
@@ -515,7 +556,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     final liveService = Provider.of<LiveService>(context, listen: false);
     final streamService = Provider.of<ApiVideoLiveStreamService>(context, listen: false);
     
-    // First create the stream in backend
+    // First create the YouTube broadcast in backend
     final streamCreated = await liveService.createLiveStream();
     if (!streamCreated) {
       if (mounted) {
@@ -526,7 +567,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
       return;
     }
     
-    // Get the RTMP URL for ApiVideo (convert from YouTube RTMP)
+    // Get the RTMP URL for streaming
     final streamInfo = liveService.currentStream;
     if (streamInfo == null) {
       if (mounted) {
@@ -537,12 +578,26 @@ class _GoLiveScreenState extends State<GoLiveScreen>
       return;
     }
     
-    // Start streaming using the stream key
-    final success = await streamService.startStreaming(streamInfo.streamKey);
+    // Start the backend auto-live monitoring
+    final liveStarted = await liveService.startStream();
+    if (!liveStarted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to start monitoring: ${liveService.errorMessage}')),
+        );
+      }
+      return;
+    }
+    
+    // Start RTMP streaming using the full RTMP URL
+    final success = await streamService.startStreaming(streamInfo.rtmpUrl);
     if (!success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to start live stream: ${streamService.errorMessage}')),
       );
+      
+      // If RTMP fails, stop the backend monitoring
+      await liveService.stopStream();
     }
   }
 

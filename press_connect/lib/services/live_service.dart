@@ -105,15 +105,14 @@ class LiveService extends ChangeNotifier {
       return false;
     }
 
-    if (kDebugMode) print('startStream: Stream key: ${_currentStream?.streamKey}');
+    if (kDebugMode) print('startStream: RTMP URL: ${_currentStream?.rtmpUrl}');
 
     _setState(StreamState.starting);
     _retryCount = 0;
 
     try {
-      // Since we're using ApiVideo Live Stream service separately,
-      // we just mark the backend stream as live
-      _setState(StreamState.live);
+      // Start auto-live monitoring to detect when YouTube broadcast becomes live
+      _startAutoLiveMonitoring();
       return true;
     } catch (e) {
       _handleError('Failed to start stream: $e');

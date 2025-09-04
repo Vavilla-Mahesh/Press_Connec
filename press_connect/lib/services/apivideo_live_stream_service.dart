@@ -18,7 +18,7 @@ class ApiVideoLiveStreamService extends ChangeNotifier with WidgetsBindingObserv
   ApiVideoLiveStreamController? _controller;
   StreamingState _state = StreamingState.idle;
   String? _errorMessage;
-  String? _streamKey;
+  String? _rtmpUrl;
   bool _isMuted = false;
   CameraPosition _cameraPosition = CameraPosition.back;
 
@@ -27,7 +27,7 @@ class ApiVideoLiveStreamService extends ChangeNotifier with WidgetsBindingObserv
   String? get errorMessage => _errorMessage;
   ApiVideoLiveStreamController? get controller => _controller;
   bool get isStreaming => _state == StreamingState.streaming;
-  bool get canStartStream => _state == StreamingState.ready && _streamKey != null && !isStreaming;
+  bool get canStartStream => _state == StreamingState.ready && _rtmpUrl != null && !isStreaming;
   bool get canStopStream => isStreaming;
   bool get isMuted => _isMuted;
   CameraPosition get cameraPosition => _cameraPosition;
@@ -98,8 +98,8 @@ class ApiVideoLiveStreamService extends ChangeNotifier with WidgetsBindingObserv
     }
   }
 
-  Future<bool> startStreaming(String streamKey) async {
-    _streamKey = streamKey;
+  Future<bool> startStreaming(String rtmpUrl) async {
+    _rtmpUrl = rtmpUrl;
 
     if (!canStartStream || _controller == null) {
       _handleError('Cannot start streaming in current state');
@@ -110,8 +110,8 @@ class ApiVideoLiveStreamService extends ChangeNotifier with WidgetsBindingObserv
       // Enable wakelock to keep device awake
       await WakelockPlus.enable();
 
-      // Start streaming
-      await _controller!.startStreaming(streamKey: streamKey);
+      // Start streaming with RTMP URL
+      await _controller!.startStreaming(streamKey: rtmpUrl);
 
       _setState(StreamingState.streaming);
       return true;
@@ -174,13 +174,13 @@ class ApiVideoLiveStreamService extends ChangeNotifier with WidgetsBindingObserv
     }
   }
 
-  void setStreamKey(String streamKey) {
-    _streamKey = streamKey;
+  void setRtmpUrl(String rtmpUrl) {
+    _rtmpUrl = rtmpUrl;
     notifyListeners();
   }
 
   void reset() {
-    _streamKey = null;
+    _rtmpUrl = null;
     _errorMessage = null;
     _isMuted = false;
     _cameraPosition = CameraPosition.back;
