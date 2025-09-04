@@ -55,9 +55,9 @@ class LiveService extends ChangeNotifier {
   StreamState get streamState => _streamState;
   String? get errorMessage => _errorMessage;
   LiveStreamInfo? get currentStream => _currentStream;
-  bool get isLive => _streamState == StreamState.live;
-  bool get canStartStream => _streamState == StreamState.idle;
-  bool get canStopStream => _streamState == StreamState.live || _streamState == StreamState.starting;
+  bool get isLive => _streamState == StreamState.live || _streamingService.isStreaming;
+  bool get canStartStream => _streamState == StreamState.idle && !_streamingService.isStreaming;
+  bool get canStopStream => _streamState == StreamState.live || _streamState == StreamState.starting || _streamingService.isStreaming;
   RTMPStreamingService get streamingService => _streamingService;
 
   Future<bool> createLiveStream() async {
@@ -279,6 +279,11 @@ class LiveService extends ChangeNotifier {
     _setState(StreamState.idle);
     _errorMessage = null;
     _streamingService.reset();
+  }
+
+  // Public method to set state for external use (e.g., custom RTMP streaming)
+  void setState(StreamState state) {
+    _setState(state);
   }
 
   void _setState(StreamState state) {

@@ -87,7 +87,7 @@ class RTMPStreamingService extends ChangeNotifier {
       _cameras[cameraIndex],
       ResolutionPreset.high,
       enableAudio: true,
-      androidUseOpenGL: true,
+      androidUseOpenGL: true, // Essential for RTMP streaming without rotation issues
     );
 
     // Add listener for camera events
@@ -122,7 +122,7 @@ class RTMPStreamingService extends ChangeNotifier {
   }
 
   Future<void> _setCorrectOrientation() async {
-    if (_cameraController != null && _cameraController!.value.isInitialized== true) {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
       return;
     }
 
@@ -148,35 +148,29 @@ class RTMPStreamingService extends ChangeNotifier {
   }
 
   Future<DeviceOrientation> _getDeviceOrientation() async {
-    // This is a simplified approach - you might need platform channels for more accurate detection
-    return DeviceOrientation.landscapeLeft; // Default for your use case
+    // Force landscape orientation for streaming to prevent rotation issues
+    return DeviceOrientation.landscapeLeft; // Always use landscape for consistent streaming
   }
 
   int _calculateRotation(CameraDescription camera, DeviceOrientation deviceOrientation) {
-    // Standard rotation calculations for Android/iOS
+    // Simplified rotation calculation for landscape-only streaming
+    // This prevents the 90-degree rotation issues mentioned in the problem
     int sensorOrientation = camera.sensorOrientation ?? 0;
     bool isFrontCamera = camera.lensDirection == CameraLensDirection.front;
 
-    int rotation;
-
-    switch (deviceOrientation) {
-      case DeviceOrientation.portraitUp:
-        rotation = sensorOrientation;
-        break;
-      case DeviceOrientation.portraitDown:
-        rotation = (sensorOrientation + 180) % 360;
-        break;
-      case DeviceOrientation.landscapeLeft:
-        rotation = (sensorOrientation + 90) % 360;
-        break;
-      case DeviceOrientation.landscapeRight:
-        rotation = (sensorOrientation - 90 + 360) % 360;
-        break;
+    // Force landscape orientation, no complex calculations
+    int rotation = 0; // Default to no rotation for landscape
+    
+    // Only adjust for sensor orientation if needed
+    if (sensorOrientation == 90) {
+      rotation = 0; // Landscape sensors work naturally
+    } else if (sensorOrientation == 270) {
+      rotation = 180; // Compensate for upside-down sensors
     }
 
-    // For front camera, we need to mirror the rotation
-    if (isFrontCamera) {
-      rotation = (360 - rotation) % 360;
+    // For front camera, mirror horizontally but keep same orientation
+    if (isFrontCamera && sensorOrientation == 270) {
+      rotation = 180;
     }
 
     return rotation;
@@ -222,14 +216,10 @@ class RTMPStreamingService extends ChangeNotifier {
       // Ensure correct orientation before starting stream
       await _setCorrectOrientation();
 
-      // Use the correct method from rtmp_broadcaster with orientation settings
+      // Use the correct method from rtmp_broadcaster with androidUseOpenGL
       await _cameraController!.startVideoStreaming(
         rtmpUrl,
-        // Add these parameters if your package supports them
-        // width: 1920,
-        // height: 1080,
-        // fps: 30,
-        // bitrate: 2500000,
+        androidUseOpenGL: true, // Required parameter from problem statement
       );
 
       _setState(StreamingState.streaming);
@@ -304,9 +294,8 @@ class RTMPStreamingService extends ChangeNotifier {
     }
   }
 
-  // Method to manually fix orientation if needed
   Future<void> fixOrientation() async {
-    if (_cameraController != null && _cameraController!.value.isInitialized== true) {
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
       await _setCorrectOrientation();
       notifyListeners();
     }

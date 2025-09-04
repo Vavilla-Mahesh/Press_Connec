@@ -124,12 +124,9 @@ class _GoLiveScreenState extends State<GoLiveScreen>
 
                       if (streamingService.isCameraInitialized &&
                           streamingService.cameraController != null &&
-                          streamingService.cameraController!.value.isInitialized==true) {
+                          streamingService.cameraController!.value.isInitialized) {
                         return SizedBox.expand(
-                          child: Transform.rotate(
-                            angle: streamingService.currentRotationRadians,
-                            child: CameraPreview(streamingService.cameraController!),
-                          ),
+                          child: CameraPreview(streamingService.cameraController!),
                         );
                       } else {
                         return Container(
@@ -199,12 +196,9 @@ class _GoLiveScreenState extends State<GoLiveScreen>
 
                       if (streamingService.isCameraInitialized &&
                           streamingService.cameraController != null &&
-                          streamingService.cameraController!.value.isInitialized==true) {
+                          streamingService.cameraController!.value.isInitialized) {
                         return SizedBox.expand(
-                          child: Transform.rotate(
-                            angle: streamingService.currentRotationRadians,
-                            child: CameraPreview(streamingService.cameraController!),
-                          ),
+                          child: CameraPreview(streamingService.cameraController!),
                         );
                       } else {
                         return Container(
@@ -516,21 +510,103 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   void _handleGoLive() async {
     final liveService = Provider.of<LiveService>(context, listen: false);
 
-    // First create the stream
-    final streamCreated = await liveService.createLiveStream();
-    if (!streamCreated) return;
+    // Show dialog to choose streaming method
+    final streamingChoice = await _showStreamingChoiceDialog();
+    if (streamingChoice == null) return;
 
-    // Then start streaming
-    final success = await liveService.startStream();
-    if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to start live stream')),
-      );
+    if (streamingChoice == 'youtube') {
+      // YouTube streaming (existing functionality)
+      final streamCreated = await liveService.createLiveStream();
+      if (!streamCreated) return;
+
+      final success = await liveService.startStream();
+      if (!success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to start live stream')),
+        );
+      }
+    } else if (streamingChoice == 'rtmp') {
+      // Custom RTMP URL streaming
+      final rtmpUrl = await _showRtmpUrlDialog();
+      if (rtmpUrl != null && rtmpUrl.isNotEmpty) {
+        final success = await liveService.streamingService.startStreaming(rtmpUrl);
+        if (success) {
+          liveService.setState(StreamState.live);
+        } else if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to start RTMP streaming')),
+          );
+        }
+      }
     }
+  }
+
+  Future<String?> _showStreamingChoiceDialog() async {
+    return showDialog<String>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Choose Streaming Method'),
+          content: const Text('How would you like to stream?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop('youtube'),
+              child: const Text('YouTube Live'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop('rtmp'),
+              child: const Text('Custom RTMP'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<String?> _showRtmpUrlDialog() async {
+    final textController = TextEditingController();
+    
+    return showDialog<String>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Enter RTMP URL'),
+          content: TextField(
+            controller: textController,
+            decoration: const InputDecoration(
+              hintText: 'rtmp://example.com/live/streamkey',
+              labelText: 'RTMP URL',
+            ),
+            keyboardType: TextInputType.url,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(textController.text),
+              child: const Text('Start Streaming'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _handleStopStream() async {
     final liveService = Provider.of<LiveService>(context, listen: false);
+    
+    // Stop RTMP streaming if active
+    if (liveService.streamingService.isStreaming) {
+      await liveService.streamingService.stopStreaming();
+    }
+    
+    // Stop YouTube streaming if active
     await liveService.stopStream();
   }
 
