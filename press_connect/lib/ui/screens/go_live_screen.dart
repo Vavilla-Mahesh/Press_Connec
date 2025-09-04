@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:rtmp_broadcaster/camera.dart';
-import '../../config.dart';
-import '../../services/live_service.dart';
-import '../../services/rtmp_streaming_service.dart';
+import 'package:camera/camera.dart';
+import '../../services/streaming_service.dart';
+import '../../services/youtube_api_service.dart';
+import '../../services/camera_service.dart';
+import '../../services/connection_service.dart';
 import '../../services/theme_service.dart';
 import '../widgets/animated_gradient_background.dart';
 import '../widgets/glass_card.dart';
@@ -21,17 +22,15 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     with TickerProviderStateMixin {
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  
+  // Stream duration timer
+  DateTime? _streamStartTime;
 
   @override
   void initState() {
     super.initState();
-    // Force landscape orientation for this screen
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
     _initializeAnimations();
-    _initializeStreaming();
+    _initializeServices();
   }
 
   void _initializeAnimations() {
@@ -47,33 +46,32 @@ class _GoLiveScreenState extends State<GoLiveScreen>
       parent: _pulseController,
       curve: Curves.easeInOut,
     ));
-
+    
     _pulseController.repeat(reverse: true);
   }
 
-  Future<void> _initializeStreaming() async {
-    final liveService = Provider.of<LiveService>(context, listen: false);
-    await liveService.streamingService.initialize();
+  Future<void> _initializeServices() async {
+    final cameraService = Provider.of<CameraService>(context, listen: false);
+    final connectionService = Provider.of<ConnectionService>(context, listen: false);
+
+    // Initialize camera service with landscape settings
+    await cameraService.initialize(
+      resolution: ResolutionPreset.high,
+      preferredCamera: CameraType.back,
+    );
+
+    // Initialize connection monitoring
+    await connectionService.initialize();
   }
 
   @override
   void dispose() {
-    // Restore orientation to all when leaving the screen
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
     _pulseController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
-    final isLandscape = screenSize.width > screenSize.height;
-
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -88,9 +86,12 @@ class _GoLiveScreenState extends State<GoLiveScreen>
       ),
       body: AnimatedGradientBackground(
         child: SafeArea(
-          child: isLandscape
-              ? _buildLandscapeLayout()
-              : _buildPortraitLayout(),
+          child: OrientationBuilder(
+            builder: (context, orientation) {
+              // Force landscape layout regardless of device orientation
+              return _buildLandscapeLayout();
+            },
+          ),
         ),
       ),
     );
@@ -99,7 +100,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   Widget _buildLandscapeLayout() {
     return Row(
       children: [
-        // Camera Preview Section (Left side)
+        // Camera Preview Section (Left side - larger)
         Expanded(
           flex: 3,
           child: Container(
@@ -108,7 +109,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Color.fromARGB((0.3 * 255).toInt(), 0, 0, 0),
+                  color: Colors.black.withOpacity(0.3),
                   blurRadius: 15,
                   spreadRadius: 2,
                 ),
@@ -118,39 +119,10 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               borderRadius: BorderRadius.circular(20),
               child: Stack(
                 children: [
-                  // Camera Preview - Removed rotation transform
-                  Consumer<LiveService>(
-                    builder: (context, liveService, child) {
-                      final streamingService = liveService.streamingService;
-
-                      if (streamingService.isCameraInitialized &&
-                          streamingService.cameraController != null &&
-                          streamingService.cameraController!.value.isInitialized==true) {
-                        return SizedBox.expand(
-                          child: CameraPreview(streamingService.cameraController!),
-                        );
-                      } else {
-                        return Container(
-                          color: Colors.black,
-                          child: const Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                CircularProgressIndicator(),
-                                SizedBox(height: 16),
-                                Text(
-                                  'Initializing camera...',
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-                    },
-                  ),
+                  _buildCameraPreview(),
                   _buildLiveIndicator(),
-                  _buildCameraInfo(), // Add camera info overlay
+                  _buildCameraInfo(),
+                  _buildConnectionIndicator(),
                 ],
               ),
             ),
@@ -166,9 +138,13 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  _buildConnectionStatusCard(),
+                  const SizedBox(height: 16),
                   _buildStreamStatusCard(),
                   const SizedBox(height: 16),
                   _buildControlButtons(),
+                  const SizedBox(height: 16),
+                  _buildStreamMetrics(),
                   _buildErrorDisplay(),
                 ],
               ),
@@ -179,125 +155,53 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     );
   }
 
-  Widget _buildPortraitLayout() {
-    return Column(
-      children: [
-        // Camera Preview Section
-        Expanded(
-          flex: 3,
-          child: Container(
-            margin: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Color.fromARGB((0.3 * 255).toInt(), 0, 0, 0),
-                  blurRadius: 15,
-                  spreadRadius: 2,
-                ),
-              ],
+  Widget _buildCameraPreview() {
+    return Consumer<CameraService>(
+      builder: (context, cameraService, child) {
+        if (cameraService.isInitialized && cameraService.controller != null) {
+          return SizedBox.expand(
+            child: AspectRatio(
+              aspectRatio: 16 / 9, // Force 16:9 landscape aspect ratio
+              child: CameraPreview(cameraService.controller!),
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: Stack(
-                children: [
-                  // Camera Preview - Removed rotation transform
-                  Consumer<LiveService>(
-                    builder: (context, liveService, child) {
-                      final streamingService = liveService.streamingService;
-
-                      if (streamingService.isCameraInitialized &&
-                          streamingService.cameraController != null &&
-                          streamingService.cameraController!.value.isInitialized==true) {
-                        return SizedBox.expand(
-                          child: CameraPreview(streamingService.cameraController!),
-                        );
-                      } else {
-                        return Container(
-                          color: Colors.black,
-                          child: const Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                CircularProgressIndicator(),
-                                SizedBox(height: 16),
-                                Text(
-                                  'Initializing camera...',
-                                  style: TextStyle(color: Colors.white),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                  _buildLiveIndicator(),
-                  _buildCameraInfo(),
-                ],
-              ),
-            ),
-          ),
-        ),
-
-        // Controls Section
-        Flexible(
-          flex: 2,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            child: SingleChildScrollView(
+          );
+        } else {
+          return Container(
+            color: Colors.black,
+            child: Center(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _buildStreamStatusCard(),
+                  const CircularProgressIndicator(),
                   const SizedBox(height: 16),
-                  _buildControlButtons(),
-                  _buildErrorDisplay(),
+                  Text(
+                    cameraService.state == CameraState.error 
+                        ? 'Camera Error' 
+                        : 'Initializing camera...',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  if (cameraService.errorMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        cameraService.errorMessage!,
+                        style: const TextStyle(color: Colors.red, fontSize: 12),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
                 ],
               ),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCameraInfo() {
-    return Consumer<LiveService>(
-      builder: (context, liveService, child) {
-        final streamingService = liveService.streamingService;
-        final camera = streamingService.currentCamera;
-
-        if (camera == null) return const SizedBox.shrink();
-
-        return Positioned(
-          top: 16,
-          right: 16,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.7),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              streamingService.isBackCamera ? 'BACK' : 'FRONT',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        );
+          );
+        }
       },
     );
   }
 
   Widget _buildLiveIndicator() {
-    return Consumer<LiveService>(
-      builder: (context, liveService, child) {
-        if (!liveService.isLive) {
+    return Consumer<StreamingService>(
+      builder: (context, streamingService, child) {
+        if (streamingService.state != StreamingState.streaming) {
           return const SizedBox.shrink();
         }
 
@@ -319,7 +223,7 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: Color.fromARGB((0.5 * 255).toInt(), 255, 0, 0),
+                        color: Colors.red.withOpacity(0.5),
                         blurRadius: 10,
                         spreadRadius: 2,
                       ),
@@ -356,11 +260,97 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     );
   }
 
-  Widget _buildStreamStatusCard() {
-    return Consumer<LiveService>(
-      builder: (context, liveService, child) {
+  Widget _buildCameraInfo() {
+    return Consumer<CameraService>(
+      builder: (context, cameraService, child) {
+        if (!cameraService.isInitialized) return const SizedBox.shrink();
+
+        return Positioned(
+          top: 16,
+          right: 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.7),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              cameraService.currentCameraType == CameraType.back ? 'BACK' : 'FRONT',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildConnectionIndicator() {
+    return Consumer<ConnectionService>(
+      builder: (context, connectionService, child) {
+        Color indicatorColor;
+        IconData indicatorIcon;
+        
+        switch (connectionService.status) {
+          case ConnectionStatus.connected:
+            indicatorColor = connectionService.isGoodForStreaming ? Colors.green : Colors.orange;
+            indicatorIcon = Icons.wifi;
+            break;
+          case ConnectionStatus.weak:
+            indicatorColor = Colors.orange;
+            indicatorIcon = Icons.wifi_1_bar;
+            break;
+          case ConnectionStatus.unstable:
+            indicatorColor = Colors.red;
+            indicatorIcon = Icons.wifi_off;
+            break;
+          default:
+            indicatorColor = Colors.grey;
+            indicatorIcon = Icons.wifi_off;
+        }
+
+        return Positioned(
+          bottom: 16,
+          right: 16,
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.7),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  indicatorIcon,
+                  color: indicatorColor,
+                  size: 16,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  connectionService.connectionQuality,
+                  style: TextStyle(
+                    color: indicatorColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildConnectionStatusCard() {
+    return Consumer<ConnectionService>(
+      builder: (context, connectionService, child) {
         return GlassCard(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -368,46 +358,95 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               Row(
                 children: [
                   Icon(
-                    liveService.isLive ? Icons.broadcast_on_home : Icons.videocam,
-                    color: liveService.isLive ? Colors.red : Colors.grey,
-                    size: 20,
+                    connectionService.isConnected ? Icons.wifi : Icons.wifi_off,
+                    color: connectionService.isGoodForStreaming ? Colors.green : Colors.orange,
+                    size: 18,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      liveService.isLive ? 'Live Streaming' : 'Ready to Stream',
+                      'Connection: ${connectionService.connectionQuality}',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 14,
+                        fontSize: 12,
                       ),
                     ),
                   ),
-                  if (liveService.isLive)
+                ],
+              ),
+              if (connectionService.currentMetrics != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Upload: ${connectionService.currentMetrics!.uploadSpeed.toStringAsFixed(1)} Mbps',
+                  style: TextStyle(
+                    color: Colors.grey[400],
+                    fontSize: 10,
+                  ),
+                ),
+                Text(
+                  'Ping: ${connectionService.currentMetrics!.ping}ms',
+                  style: TextStyle(
+                    color: Colors.grey[400],
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildStreamStatusCard() {
+    return Consumer2<StreamingService, YouTubeApiService>(
+      builder: (context, streamingService, youtubeService, child) {
+        return GlassCard(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    streamingService.isStreaming ? Icons.broadcast_on_home : Icons.videocam,
+                    color: streamingService.isStreaming ? Colors.red : Colors.grey,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _getStreamStatusText(streamingService, youtubeService),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  if (streamingService.isStreaming)
                     const Text(
                       '● LIVE',
                       style: TextStyle(
                         color: Colors.red,
                         fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                        fontSize: 10,
                       ),
                     ),
                 ],
               ),
               const SizedBox(height: 8),
               Text(
-                liveService.isLive
-                    ? 'Broadcasting to YouTube'
-                    : 'Camera ready for streaming',
+                _getStreamSubtitle(streamingService, youtubeService),
                 style: TextStyle(
                   color: Colors.grey[400],
-                  fontSize: 12,
+                  fontSize: 10,
                 ),
               ),
-              // Add stream info when live
-              if (liveService.isLive) ...[
-                const SizedBox(height: 8),
+              if (streamingService.isStreaming && streamingService.streamDuration != null) ...[
+                const SizedBox(height: 4),
                 Text(
-                  'Resolution: 1920x1080 @ 30fps',
+                  'Duration: ${_formatDuration(streamingService.streamDuration!)}',
                   style: TextStyle(
                     color: Colors.grey[400],
                     fontSize: 10,
@@ -429,36 +468,38 @@ class _GoLiveScreenState extends State<GoLiveScreen>
         SizedBox(
           width: double.infinity,
           height: 48,
-          child: Consumer<LiveService>(
-            builder: (context, liveService, child) {
+          child: Consumer3<StreamingService, YouTubeApiService, ConnectionService>(
+            builder: (context, streamingService, youtubeService, connectionService, child) {
+              final isReady = streamingService.canStartStream && 
+                              connectionService.isGoodForStreaming;
+              final isStreaming = streamingService.isStreaming;
+              final isLoading = streamingService.state == StreamingState.connecting ||
+                               youtubeService.status == YouTubeStreamStatus.creating;
+
               return AnimatedButton(
-                onPressed: liveService.canStartStream
-                    ? _handleGoLive
-                    : liveService.canStopStream
-                    ? _handleStopStream
-                    : null,
-                gradient: liveService.isLive
+                onPressed: isLoading ? null : (isStreaming ? _handleStopStream : (isReady ? _handleGoLive : null)),
+                gradient: isStreaming
                     ? LinearGradient(
-                  colors: [Colors.red, Colors.red.shade700],
-                )
+                        colors: [Colors.red, Colors.red.shade700],
+                      )
                     : ThemeService.primaryGradient,
-                child: liveService.streamState == StreamState.preparing
+                child: isLoading
                     ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
                     : Text(
-                  liveService.isLive ? 'Stop Live' : 'Go Live',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
+                        isStreaming ? 'Stop Live' : 'Go Live',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
               );
             },
           ),
@@ -471,10 +512,10 @@ class _GoLiveScreenState extends State<GoLiveScreen>
           children: [
             // Camera Switch Button
             Expanded(
-              child: Consumer<LiveService>(
-                builder: (context, liveService, child) {
-                  final canSwitch = !liveService.isLive &&
-                      liveService.streamingService.state == StreamingState.ready;
+              child: Consumer2<CameraService, StreamingService>(
+                builder: (context, cameraService, streamingService, child) {
+                  final canSwitch = cameraService.canSwitchCamera && 
+                                   !streamingService.isStreaming;
 
                   return Container(
                     height: 40,
@@ -482,8 +523,8 @@ class _GoLiveScreenState extends State<GoLiveScreen>
                       gradient: canSwitch
                           ? ThemeService.accentGradient
                           : LinearGradient(
-                        colors: [Colors.grey.shade600, Colors.grey.shade700],
-                      ),
+                              colors: [Colors.grey.shade600, Colors.grey.shade700],
+                            ),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Material(
@@ -513,36 +554,30 @@ class _GoLiveScreenState extends State<GoLiveScreen>
 
             const SizedBox(width: 8),
 
-            // Snapshot Button
+            // Quality Button
             Expanded(
-              child: Consumer<LiveService>(
-                builder: (context, liveService, child) {
-                  final canTakeSnapshot = liveService.streamingService.isCameraInitialized;
-
+              child: Consumer<StreamingService>(
+                builder: (context, streamingService, child) {
                   return Container(
                     height: 40,
                     decoration: BoxDecoration(
-                      gradient: canTakeSnapshot
-                          ? ThemeService.accentGradient
-                          : LinearGradient(
-                        colors: [Colors.grey.shade600, Colors.grey.shade700],
-                      ),
+                      gradient: ThemeService.accentGradient,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        onTap: canTakeSnapshot ? _takeSnapshot : null,
-                        child: const Center(
+                        onTap: _showQualitySelector,
+                        child: Center(
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.camera_alt, color: Colors.white, size: 16),
-                              SizedBox(width: 4),
+                              const Icon(Icons.high_quality, color: Colors.white, size: 16),
+                              const SizedBox(width: 4),
                               Text(
-                                'Photo',
-                                style: TextStyle(color: Colors.white, fontSize: 12),
+                                _getQualityText(streamingService.quality),
+                                style: const TextStyle(color: Colors.white, fontSize: 12),
                               ),
                             ],
                           ),
@@ -559,59 +594,185 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     );
   }
 
-  Widget _buildErrorDisplay() {
-    return Consumer<LiveService>(
-      builder: (context, liveService, child) {
-        if (liveService.errorMessage != null) {
-          return Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.red.withOpacity(0.3)),
+  Widget _buildStreamMetrics() {
+    return Consumer<StreamingService>(
+      builder: (context, streamingService, child) {
+        if (!streamingService.isStreaming) {
+          return const SizedBox.shrink();
+        }
+
+        return GlassCard(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Stream Metrics',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
               ),
-              child: Row(
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Icon(
-                    Icons.error_outline,
-                    color: Theme.of(context).colorScheme.error,
-                    size: 16,
+                  Text(
+                    'Bitrate:',
+                    style: TextStyle(color: Colors.grey[400], fontSize: 10),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      liveService.errorMessage!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                        fontSize: 12,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => liveService.clearError(),
-                    icon: Icon(
-                      Icons.close,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 24,
-                      minHeight: 24,
-                    ),
+                  Text(
+                    '${(streamingService.currentBitrate / 1000000).toStringAsFixed(1)} Mbps',
+                    style: const TextStyle(fontSize: 10),
                   ),
                 ],
               ),
-            ),
-          );
-        }
-        return const SizedBox.shrink();
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Quality:',
+                    style: TextStyle(color: Colors.grey[400], fontSize: 10),
+                  ),
+                  Text(
+                    _getQualityText(streamingService.quality),
+                    style: const TextStyle(fontSize: 10),
+                  ),
+                ],
+              ),
+              if (streamingService.frameDropCount > 0) ...[
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Dropped frames:',
+                      style: TextStyle(color: Colors.orange[400], fontSize: 10),
+                    ),
+                    Text(
+                      streamingService.frameDropCount.toString(),
+                      style: TextStyle(color: Colors.orange[400], fontSize: 10),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        );
       },
     );
+  }
+
+  Widget _buildErrorDisplay() {
+    return Consumer3<StreamingService, YouTubeApiService, ConnectionService>(
+      builder: (context, streamingService, youtubeService, connectionService, child) {
+        String? errorMessage;
+        
+        if (streamingService.errorMessage != null) {
+          errorMessage = streamingService.errorMessage;
+        } else if (youtubeService.errorMessage != null) {
+          errorMessage = youtubeService.errorMessage;
+        } else if (connectionService.errorMessage != null) {
+          errorMessage = connectionService.errorMessage;
+        }
+
+        if (errorMessage == null) {
+          return const SizedBox.shrink();
+        }
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.red.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.red.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  color: Theme.of(context).colorScheme.error,
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    errorMessage,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontSize: 12,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  onPressed: _clearErrors,
+                  icon: Icon(
+                    Icons.close,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 24,
+                    minHeight: 24,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _getStreamStatusText(StreamingService streamingService, YouTubeApiService youtubeService) {
+    if (streamingService.isStreaming) {
+      return 'Live Streaming';
+    } else if (streamingService.state == StreamingState.connecting) {
+      return 'Connecting...';
+    } else if (youtubeService.status == YouTubeStreamStatus.creating) {
+      return 'Setting up...';
+    } else if (streamingService.state == StreamingState.ready) {
+      return 'Ready to Stream';
+    } else {
+      return 'Initializing...';
+    }
+  }
+
+  String _getStreamSubtitle(StreamingService streamingService, YouTubeApiService youtubeService) {
+    if (streamingService.isStreaming) {
+      return 'Broadcasting to YouTube Live';
+    } else if (youtubeService.hasActiveStream) {
+      return 'YouTube stream ready';
+    } else {
+      return 'Camera ready for streaming';
+    }
+  }
+
+  String _getQualityText(StreamQuality quality) {
+    switch (quality) {
+      case StreamQuality.low:
+        return '480p';
+      case StreamQuality.medium:
+        return '720p';
+      case StreamQuality.high:
+        return '1080p';
+      case StreamQuality.auto:
+        return 'Auto';
+    }
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return '${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds';
   }
 
   void _showSettings() {
@@ -621,54 +782,144 @@ class _GoLiveScreenState extends State<GoLiveScreen>
     );
   }
 
-  void _handleGoLive() async {
-    final liveService = Provider.of<LiveService>(context, listen: false);
+  void _showQualitySelector() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => const QualitySelector(),
+    );
+  }
 
-    // First create the stream
-    final streamCreated = await liveService.createLiveStream();
-    if (!streamCreated) return;
+  Future<void> _handleGoLive() async {
+    final streamingService = Provider.of<StreamingService>(context, listen: false);
+    final youtubeService = Provider.of<YouTubeApiService>(context, listen: false);
+    final connectionService = Provider.of<ConnectionService>(context, listen: false);
 
-    // Then start streaming
-    final success = await liveService.startStream();
-    if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to start live stream')),
-      );
+    // Check connection quality
+    if (!connectionService.isGoodForStreaming) {
+      _showConnectionWarning();
+      return;
     }
-  }
 
-  void _handleStopStream() async {
-    final liveService = Provider.of<LiveService>(context, listen: false);
-    await liveService.stopStream();
-  }
-
-  void _switchCamera() async {
-    final liveService = Provider.of<LiveService>(context, listen: false);
-    final success = await liveService.streamingService.switchCamera();
-
-    if (!success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to switch camera')),
-      );
-    }
-  }
-
-  void _takeSnapshot() async {
-    final liveService = Provider.of<LiveService>(context, listen: false);
     try {
-      await liveService.streamingService.takeSnapshot();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Snapshot saved!')),
-        );
+      // First create YouTube stream
+      final streamInfo = await youtubeService.createYouTubeLiveStream();
+      if (streamInfo == null) {
+        _showError('Failed to create YouTube stream');
+        return;
       }
+
+      // Initialize streaming service with the stream key
+      final initialized = await streamingService.initializeStreaming(streamInfo.streamKey);
+      if (!initialized) {
+        _showError('Failed to initialize streaming');
+        return;
+      }
+
+      // Start YouTube broadcast
+      final broadcastStarted = await youtubeService.startYouTubeBroadcast();
+      if (!broadcastStarted) {
+        _showError('Failed to start YouTube broadcast');
+        return;
+      }
+
+      // Start streaming
+      final streamStarted = await streamingService.startYouTubeStream();
+      if (!streamStarted) {
+        _showError('Failed to start stream');
+        return;
+      }
+
+      _streamStartTime = DateTime.now();
+      
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to take snapshot')),
-        );
-      }
+      _showError('Error starting stream: $e');
     }
+  }
+
+  Future<void> _handleStopStream() async {
+    final streamingService = Provider.of<StreamingService>(context, listen: false);
+    final youtubeService = Provider.of<YouTubeApiService>(context, listen: false);
+
+    try {
+      // Stop streaming first
+      await streamingService.stopStream();
+      
+      // End YouTube broadcast
+      await youtubeService.endYouTubeBroadcast();
+      
+      _streamStartTime = null;
+      
+    } catch (e) {
+      _showError('Error stopping stream: $e');
+    }
+  }
+
+  Future<void> _switchCamera() async {
+    final cameraService = Provider.of<CameraService>(context, listen: false);
+    final success = await cameraService.switchCamera();
+
+    if (!success && mounted) {
+      _showError('Failed to switch camera');
+    }
+  }
+
+  void _showConnectionWarning() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Connection Quality Warning'),
+        content: Consumer<ConnectionService>(
+          builder: (context, connectionService, child) {
+            final recommendations = connectionService.getStreamingRecommendations();
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Your connection may not be optimal for streaming:'),
+                const SizedBox(height: 8),
+                ...recommendations.map((recommendation) => 
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text('• $recommendation', style: const TextStyle(fontSize: 12)),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _handleGoLive();
+            },
+            child: const Text('Stream Anyway'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
+  }
+
+  void _clearErrors() {
+    final streamingService = Provider.of<StreamingService>(context, listen: false);
+    final youtubeService = Provider.of<YouTubeApiService>(context, listen: false);
+    final connectionService = Provider.of<ConnectionService>(context, listen: false);
+
+    streamingService.clearError();
+    youtubeService.clearError();
+    connectionService.clearError();
   }
 }
 
@@ -689,44 +940,147 @@ class SettingsBottomSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-
-          // Stream Quality Info
-          Consumer<LiveService>(
-            builder: (context, liveService, child) {
+          Consumer3<StreamingService, CameraService, ConnectionService>(
+            builder: (context, streamingService, cameraService, connectionService, child) {
               return Column(
                 children: [
                   ListTile(
                     leading: const Icon(Icons.high_quality),
                     title: const Text('Stream Quality'),
-                    subtitle: Text(
-                      '${AppConfig.defaultResolution['width']}x${AppConfig.defaultResolution['height']} @ 30fps\n2.5 Mbps bitrate',
-                    ),
+                    subtitle: Text(_getQualityDescription(streamingService.quality)),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showQualitySelector(context);
+                    },
                   ),
                   ListTile(
                     leading: const Icon(Icons.camera),
                     title: const Text('Camera'),
-                    subtitle: Text(
-                      liveService.streamingService.currentCamera?.name ?? 'Not initialized',
-                    ),
+                    subtitle: Text('${cameraService.currentCameraType.name.toUpperCase()} - ${cameraService.resolution.name}'),
                   ),
                   ListTile(
-                    leading: const Icon(Icons.screen_rotation),
-                    title: const Text('Orientation'),
-                    subtitle: const Text('Landscape only'),
+                    leading: Icon(
+                      connectionService.isConnected ? Icons.wifi : Icons.wifi_off,
+                      color: connectionService.isGoodForStreaming ? Colors.green : Colors.orange,
+                    ),
+                    title: const Text('Connection'),
+                    subtitle: Text('${connectionService.connectionQuality} - ${connectionService.currentMetrics?.uploadSpeed.toStringAsFixed(1) ?? '0'} Mbps'),
                   ),
+                  if (streamingService.isStreaming) ...[
+                    const Divider(),
+                    ListTile(
+                      leading: const Icon(Icons.timer, color: Colors.red),
+                      title: const Text('Live Duration'),
+                      subtitle: Text(streamingService.streamDuration != null 
+                          ? _formatDuration(streamingService.streamDuration!) 
+                          : '00:00:00'),
+                    ),
+                  ],
                 ],
               );
             },
           ),
+        ],
+      ),
+    );
+  }
 
-          const SizedBox(height: 16),
+  String _getQualityDescription(StreamQuality quality) {
+    switch (quality) {
+      case StreamQuality.low:
+        return '480p - 1 Mbps (Mobile data friendly)';
+      case StreamQuality.medium:
+        return '720p - 2.5 Mbps (Recommended)';
+      case StreamQuality.high:
+        return '1080p - 4 Mbps (High quality)';
+      case StreamQuality.auto:
+        return 'Auto - Adapts to connection';
+    }
+  }
 
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+  void _showQualitySelector(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => const QualitySelector(),
+    );
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return '${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds';
+  }
+}
+
+class QualitySelector extends StatelessWidget {
+  const QualitySelector({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Stream Quality',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Consumer<StreamingService>(
+            builder: (context, streamingService, child) {
+              return Column(
+                children: StreamQuality.values.map((quality) {
+                  return ListTile(
+                    leading: Radio<StreamQuality>(
+                      value: quality,
+                      groupValue: streamingService.quality,
+                      onChanged: streamingService.isStreaming ? null : (value) {
+                        if (value != null) {
+                          streamingService.updateStreamQuality(value);
+                          Navigator.pop(context);
+                        }
+                      },
+                    ),
+                    title: Text(_getQualityText(quality)),
+                    subtitle: Text(_getQualityDescription(quality)),
+                    enabled: !streamingService.isStreaming,
+                  );
+                }).toList(),
+              );
+            },
           ),
         ],
       ),
     );
+  }
+
+  String _getQualityText(StreamQuality quality) {
+    switch (quality) {
+      case StreamQuality.low:
+        return '480p Low';
+      case StreamQuality.medium:
+        return '720p Medium';
+      case StreamQuality.high:
+        return '1080p High';
+      case StreamQuality.auto:
+        return 'Auto Quality';
+    }
+  }
+
+  String _getQualityDescription(StreamQuality quality) {
+    switch (quality) {
+      case StreamQuality.low:
+        return '1 Mbps - Best for mobile data';
+      case StreamQuality.medium:
+        return '2.5 Mbps - Recommended for most users';
+      case StreamQuality.high:
+        return '4 Mbps - High quality, requires good connection';
+      case StreamQuality.auto:
+        return 'Automatically adjusts based on connection';
+    }
   }
 }
