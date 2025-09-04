@@ -441,6 +441,47 @@ class _GoLiveScreenState extends State<GoLiveScreen>
 
             const SizedBox(width: 8),
 
+            // Orientation Fix Button (for debugging)
+            Expanded(
+              child: Container(
+                height: 40,
+                decoration: BoxDecoration(
+                  gradient: ThemeService.accentGradient,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () async {
+                      final liveService = Provider.of<LiveService>(context, listen: false);
+                      await liveService.streamingService.fixOrientation();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Orientation fixed')),
+                        );
+                      }
+                    },
+                    child: const Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.screen_rotation, color: Colors.white, size: 16),
+                          SizedBox(width: 4),
+                          Text(
+                            'Fix',
+                            style: TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(width: 8),
+
             // Snapshot Button
             Expanded(
               child: Container(
@@ -529,13 +570,31 @@ class _GoLiveScreenState extends State<GoLiveScreen>
       // Custom RTMP URL streaming
       final rtmpUrl = await _showRtmpUrlDialog();
       if (rtmpUrl != null && rtmpUrl.isNotEmpty) {
+        // Ensure camera is initialized first
+        if (!liveService.streamingService.isCameraInitialized) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Camera not ready. Please wait...')),
+          );
+          return;
+        }
+        
+        liveService.setState(StreamState.preparing);
         final success = await liveService.streamingService.startStreaming(rtmpUrl);
         if (success) {
           liveService.setState(StreamState.live);
-        } else if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to start RTMP streaming')),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('RTMP streaming started successfully!')),
+            );
+          }
+        } else {
+          liveService.setState(StreamState.idle);
+          if (mounted) {
+            final errorMsg = liveService.streamingService.errorMessage ?? 'Failed to start RTMP streaming';
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(errorMsg)),
+            );
+          }
         }
       }
     }
@@ -575,13 +634,23 @@ class _GoLiveScreenState extends State<GoLiveScreen>
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Enter RTMP URL'),
-          content: TextField(
-            controller: textController,
-            decoration: const InputDecoration(
-              hintText: 'rtmp://example.com/live/streamkey',
-              labelText: 'RTMP URL',
-            ),
-            keyboardType: TextInputType.url,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: textController,
+                decoration: const InputDecoration(
+                  hintText: 'rtmp://example.com/live/streamkey',
+                  labelText: 'RTMP URL',
+                ),
+                keyboardType: TextInputType.url,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Example: rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -589,7 +658,16 @@ class _GoLiveScreenState extends State<GoLiveScreen>
               child: const Text('Cancel'),
             ),
             TextButton(
-              onPressed: () => Navigator.of(context).pop(textController.text),
+              onPressed: () {
+                final url = textController.text.trim();
+                if (url.isNotEmpty && url.startsWith('rtmp://')) {
+                  Navigator.of(context).pop(url);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter a valid RTMP URL starting with rtmp://')),
+                  );
+                }
+              },
               child: const Text('Start Streaming'),
             ),
           ],
@@ -601,13 +679,42 @@ class _GoLiveScreenState extends State<GoLiveScreen>
   void _handleStopStream() async {
     final liveService = Provider.of<LiveService>(context, listen: false);
     
-    // Stop RTMP streaming if active
-    if (liveService.streamingService.isStreaming) {
-      await liveService.streamingService.stopStreaming();
-    }
+    liveService.setState(StreamState.stopping);
     
-    // Stop YouTube streaming if active
-    await liveService.stopStream();
+    try {
+      // Stop RTMP streaming if active
+      if (liveService.streamingService.isStreaming) {
+        final rtmpStopped = await liveService.streamingService.stopStreaming();
+        if (!rtmpStopped) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Warning: RTMP streaming may not have stopped properly')),
+            );
+          }
+        }
+      }
+      
+      // Stop YouTube streaming if active
+      final youtubeStopped = await liveService.stopStream();
+      if (!youtubeStopped && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Warning: YouTube streaming may not have stopped properly')),
+        );
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Streaming stopped')),
+        );
+      }
+    } catch (e) {
+      liveService.setState(StreamState.error);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error stopping stream: $e')),
+        );
+      }
+    }
   }
 
   void _switchCamera() async {
