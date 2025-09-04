@@ -4,6 +4,7 @@ import 'package:apivideo_live_stream/apivideo_live_stream.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter/widgets.dart';
+import 'dart:async';
 
 enum StreamingState {
   idle,
@@ -201,6 +202,15 @@ class ApiVideoLiveStreamService extends ChangeNotifier with WidgetsBindingObserv
 
     if (kDebugMode) {
       print('ApiVideoLiveStreamService Error: $error');
+    }
+    
+    // Auto-clear error after 10 seconds in production
+    if (!kDebugMode) {
+      Timer(const Duration(seconds: 10), () {
+        if (_state == StreamingState.error) {
+          clearError();
+        }
+      });
     }
   }
 

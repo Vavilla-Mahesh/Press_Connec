@@ -266,6 +266,15 @@ class LiveService extends ChangeNotifier {
     if (kDebugMode) {
       print('LiveService Error: $error');
     }
+    
+    // Auto-clear error after 10 seconds in production
+    if (!kDebugMode) {
+      Timer(const Duration(seconds: 10), () {
+        if (_streamState == StreamState.error) {
+          clearError();
+        }
+      });
+    }
   }
 
   void clearError() {
