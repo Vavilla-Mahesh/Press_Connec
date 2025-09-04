@@ -145,11 +145,10 @@ class ApiVideoLiveStreamService extends ChangeNotifier with WidgetsBindingObserv
     }
 
     try {
+      await _controller!.switchCamera();
       _cameraPosition = _cameraPosition == CameraPosition.back 
           ? CameraPosition.front 
           : CameraPosition.back;
-      
-      await _controller!.switchCamera();
       notifyListeners();
       return true;
     } catch (e) {
@@ -165,11 +164,7 @@ class ApiVideoLiveStreamService extends ChangeNotifier with WidgetsBindingObserv
 
     try {
       _isMuted = !_isMuted;
-      if (_isMuted) {
-        await _controller!.setAudioConfig(AudioConfig(bitrate: 0));
-      } else {
-        await _controller!.setAudioConfig(AudioConfig());
-      }
+      await _controller!.toggleMute();
       notifyListeners();
       return true;
     } catch (e) {

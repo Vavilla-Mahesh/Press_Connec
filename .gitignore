@@ -12,6 +12,10 @@
 .swiftpm/
 migrate_working_dir/
 
+# Backup files
+*_old.dart
+*.placeholder
+
 # IntelliJ related
 *.iml
 *.ipr
