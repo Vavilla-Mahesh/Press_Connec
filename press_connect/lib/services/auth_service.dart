@@ -12,6 +12,11 @@ enum AuthState {
   error
 }
 
+enum UserRole {
+  admin,
+  user
+}
+
 class AuthService extends ChangeNotifier {
   final _secureStorage = const FlutterSecureStorage();
   final _dio = Dio();
@@ -19,13 +24,22 @@ class AuthService extends ChangeNotifier {
   AuthState _authState = AuthState.initial;
   String? _errorMessage;
   GoogleSignInAccount? _googleUser;
+  UserRole? _userRole;
+  String? _username;
+  int? _userId;
   
   AuthState get authState => _authState;
   String? get errorMessage => _errorMessage;
   GoogleSignInAccount? get googleUser => _googleUser;
+  UserRole? get userRole => _userRole;
+  String? get username => _username;
+  int? get userId => _userId;
+  
   bool get isAppAuthenticated => _authState == AuthState.appAuthenticated || 
                                  _authState == AuthState.youtubeAuthenticated;
   bool get isYouTubeAuthenticated => _authState == AuthState.youtubeAuthenticated;
+  bool get isAdmin => _userRole == UserRole.admin;
+  bool get requiresYouTubeAuth => isAdmin && _authState == AuthState.appAuthenticated;
 
   GoogleSignIn? _googleSignIn;
 
@@ -54,6 +68,21 @@ class AuthService extends ChangeNotifier {
     try {
       final appAuth = await _secureStorage.read(key: 'app_authenticated');
       final youtubeAuth = await _secureStorage.read(key: 'youtube_authenticated');
+      final roleStr = await _secureStorage.read(key: 'user_role');
+      final storedUsername = await _secureStorage.read(key: 'username');
+      final userIdStr = await _secureStorage.read(key: 'user_id');
+      
+      if (roleStr != null) {
+        _userRole = roleStr == 'admin' ? UserRole.admin : UserRole.user;
+      }
+      
+      if (storedUsername != null) {
+        _username = storedUsername;
+      }
+      
+      if (userIdStr != null) {
+        _userId = int.tryParse(userIdStr);
+      }
       
       if (youtubeAuth == 'true') {
         _authState = AuthState.youtubeAuthenticated;
@@ -81,8 +110,18 @@ class AuthService extends ChangeNotifier {
       );
 
       if (response.statusCode == 200) {
+        final userData = response.data['user'];
+        _username = userData['username'];
+        _userId = userData['id'];
+        _userRole = userData['role'] == 'admin' ? UserRole.admin : UserRole.user;
+        
         await _secureStorage.write(key: 'app_authenticated', value: 'true');
         await _secureStorage.write(key: 'app_session', value: response.data['token'] ?? '');
+        await _secureStorage.write(key: 'user_role', value: userData['role']);
+        await _secureStorage.write(key: 'username', value: userData['username']);
+        if (userData['id'] != null) {
+          await _secureStorage.write(key: 'user_id', value: userData['id'].toString());
+        }
         
         _authState = AuthState.appAuthenticated;
         _errorMessage = null;

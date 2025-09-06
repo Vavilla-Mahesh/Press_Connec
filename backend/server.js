@@ -7,6 +7,8 @@ const dotenv = require('dotenv');
 
 const authController = require('./src/auth.controller');
 const liveController = require('./src/live.controller');
+const database = require('./src/database');
+const userService = require('./src/user.service');
 
 dotenv.config();
 
@@ -57,9 +59,23 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+// Admin verification middleware  
+const verifyAdmin = (req, res, next) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+};
+
 // Routes
 app.post('/auth/app-login', authController.appLogin);
 app.post('/auth/exchange', verifyToken, authController.exchangeCode);
+
+// User management routes (Admin only)
+app.post('/users', verifyToken, verifyAdmin, authController.createUser);
+app.get('/users', verifyToken, verifyAdmin, authController.getUsers);
+app.put('/users/:userId', verifyToken, verifyAdmin, authController.updateUser);
+app.delete('/users/:userId', verifyToken, verifyAdmin, authController.deleteUser);
 
 // Add these routes to your server.js file after the existing live streaming routes
 
@@ -95,12 +111,33 @@ app.use((error, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Press Connect Backend running on port ${PORT}`);
+  
+  // Initialize database
+  try {
+    await database.init();
+    
+    // Create default admin if database is available and no admin exists
+    if (database.isAvailable()) {
+      const defaultAdminUsername = process.env.ADMIN_USERNAME || config.appLogin[0]?.username || 'admin';
+      const defaultAdminPassword = process.env.ADMIN_PASSWORD || config.appLogin[0]?.password || 'admin123';
+      
+      await userService.createDefaultAdmin(defaultAdminUsername, defaultAdminPassword);
+    }
+  } catch (error) {
+    console.error('Database initialization error:', error.message);
+    console.log('Continuing with file-based storage...');
+  }
+  
   console.log(`Health check: http://localhost:${PORT}/health`);
   console.log('Available endpoints:');
   console.log('  POST /auth/app-login');
   console.log('  POST /auth/exchange');
+  console.log('  POST /users (admin only)');
+  console.log('  GET /users (admin only)');
+  console.log('  PUT /users/:userId (admin only)');
+  console.log('  DELETE /users/:userId (admin only)');
   console.log('  POST /live/create');
   console.log('  POST /live/check-and-go-live');
   console.log('  POST /live/end');

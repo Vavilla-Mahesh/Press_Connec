@@ -8,6 +8,7 @@ import '../../services/youtube_api_service.dart';
 import '../../services/camera_service.dart';
 import '../../services/connection_service.dart' as conn_service;
 import '../../services/theme_service.dart';
+import '../../services/auth_service.dart';
 import '../widgets/animated_gradient_background.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/animated_button.dart';
@@ -122,6 +123,18 @@ class _GoLiveScreenState extends State<GoLiveScreen>
         backgroundColor: Colors.transparent,
         title: const Text('Go Live'),
         actions: [
+          Consumer<AuthService>(
+            builder: (context, authService, child) {
+              if (authService.isAdmin) {
+                return IconButton(
+                  onPressed: () => Navigator.pushNamed(context, '/user-management'),
+                  icon: const Icon(Icons.people),
+                  tooltip: 'Manage Users',
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
           IconButton(
             onPressed: _showSettings,
             icon: const Icon(Icons.settings),
