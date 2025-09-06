@@ -7,6 +7,10 @@ const dotenv = require('dotenv');
 
 const authController = require('./src/auth.controller');
 const liveController = require('./src/live.controller');
+const database = require('./src/database');
+const userManager = require('./src/user.manager');
+const tokenStore = require('./src/token.store');
+const googleOAuth = require('./src/google.oauth');
 
 dotenv.config();
 
@@ -17,12 +21,66 @@ const PORT = process.env.PORT || 5000;
 let config;
 try {
   const configPath = path.join(__dirname, 'local.config.json');
-  config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  config.backendBaseUrl = process.env.BACKEND_BASE_URL;
+  const localConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  
+  // Merge local config with environment variables
+  config = {
+    appLogin: localConfig.appLogin,
+    oauth: {
+      clientId: process.env.GOOGLE_CLIENT_ID || localConfig.oauth.clientId,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || localConfig.oauth.clientSecret || null,
+      redirectUri: localConfig.oauth.redirectUri
+    },
+    jwt: {
+      secret: process.env.JWT_SECRET || localConfig.jwt.secret,
+      expiresIn: localConfig.jwt.expiresIn
+    },
+    database: {
+      host: process.env.DB_HOST || localConfig.database.host,
+      port: process.env.DB_PORT || localConfig.database.port,
+      database: process.env.DB_NAME || localConfig.database.database,
+      user: process.env.DB_USER || localConfig.database.user,
+      password: process.env.DB_PASSWORD || localConfig.database.password,
+      ssl: process.env.DB_SSL === 'true' || localConfig.database.ssl
+    },
+    encryption: {
+      key: process.env.ENCRYPTION_KEY || localConfig.encryption.key
+    },
+    backendBaseUrl: process.env.BACKEND_BASE_URL
+  };
+  
+  console.log('Configuration loaded successfully');
+  console.log(`OAuth Client ID: ${config.oauth.clientId}`);
+  console.log(`OAuth Client Secret: ${config.oauth.clientSecret ? '[CONFIGURED]' : '[NOT CONFIGURED - Android OAuth Mode]'}`);
 } catch (error) {
   console.error('Failed to load configuration:', error);
   process.exit(1);
 }
+
+// Initialize database and users
+const initializeApp = async () => {
+  try {
+    // Initialize database connection and schema
+    await database.initializeDatabase(config);
+    
+    // Initialize users from config
+    await userManager.initializeUsers(config);
+    
+    // Start token refresh system (runs every 5 minutes)
+    setInterval(async () => {
+      try {
+        await tokenStore.refreshExpiredTokens(config.encryption.key, config.oauth, googleOAuth);
+      } catch (error) {
+        console.error('Token refresh system error:', error);
+      }
+    }, 5 * 60 * 1000);
+    
+    console.log('Application initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize application:', error);
+    process.exit(1);
+  }
+};
 
 // Middleware
 app.use(cors());
@@ -40,8 +98,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// JWT verification middleware
-const verifyToken = (req, res, next) => {
+// JWT verification middleware with session validation
+const verifyToken = async (req, res, next) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
 
   if (!token) {
@@ -50,7 +108,23 @@ const verifyToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, config.jwt.secret);
-    req.user = decoded;
+    
+    // Validate session if sessionId is present
+    if (decoded.sessionId) {
+      const session = await userManager.validateSession(decoded.sessionId);
+      if (!session) {
+        return res.status(401).json({ error: 'Session expired or invalid' });
+      }
+      
+      // Update user info with session data
+      req.user = {
+        ...decoded,
+        associatedWith: session.associatedWith
+      };
+    } else {
+      req.user = decoded;
+    }
+    
     next();
   } catch (error) {
     return res.status(401).json({ error: 'Invalid token' });
@@ -59,19 +133,15 @@ const verifyToken = (req, res, next) => {
 
 // Routes
 app.post('/auth/app-login', authController.appLogin);
+app.post('/auth/validate-session', authController.validateSession);
+app.post('/auth/logout', verifyToken, authController.logout);
 app.post('/auth/exchange', verifyToken, authController.exchangeCode);
 
 // Add these routes to your server.js file after the existing live streaming routes
 
 // Enhanced live streaming routes
 app.post('/live/create', verifyToken, liveController.createLiveStream);
-app.post('/live/check-and-go-live', verifyToken, liveController.checkAndGoLiveEnhanced); // Use enhanced version
-app.get('/live/status/:broadcastId', verifyToken, liveController.getBroadcastStatus); // New route
 app.post('/live/end', verifyToken, liveController.endLiveStream);
-app.post('/live/transition', verifyToken, liveController.transitionBroadcast);
-
-// Fallback route for minimal stream creation if needed
-app.post('/live/create-minimal', verifyToken, liveController.createLiveStreamMinimal);
 // Health check
 app.get('/health', (req, res) => {
   res.json({
@@ -95,14 +165,19 @@ app.use((error, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Press Connect Backend running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log('Available endpoints:');
-  console.log('  POST /auth/app-login');
-  console.log('  POST /auth/exchange');
-  console.log('  POST /live/create');
-  console.log('  POST /live/check-and-go-live');
-  console.log('  POST /live/end');
-  console.log('  POST /live/transition');
-});
+// Initialize app and start server
+(async () => {
+  await initializeApp();
+  
+  app.listen(PORT, () => {
+    console.log(`Press Connect Backend running on port ${PORT}`);
+    console.log(`Health check: http://localhost:${PORT}/health`);
+    console.log('Available endpoints:');
+    console.log('  POST /auth/app-login');
+    console.log('  POST /auth/validate-session');
+    console.log('  POST /auth/logout');
+    console.log('  POST /auth/exchange');
+    console.log('  POST /live/create');
+    console.log('  POST /live/end');
+  });
+})();

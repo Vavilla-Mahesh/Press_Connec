@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
 const googleOAuth = require('./google.oauth');
 const tokenStore = require('./token.store');
+const userManager = require('./user.manager');
 
 const appLogin = async (req, res) => {
   try {
@@ -11,18 +11,23 @@ const appLogin = async (req, res) => {
       return res.status(400).json({ error: 'Username and password required' });
     }
 
-    // Check credentials against config
-    const validUser = req.config.appLogin.find(user => 
-      user.username === username && user.password === password
-    );
+    // Validate credentials against database
+    const validUser = await userManager.validateUserCredentials(username, password);
 
     if (!validUser) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Generate JWT token
+    // Create session in PostgreSQL
+    const session = await userManager.createUserSession(validUser.username);
+
+    // Generate JWT token with session ID
     const token = jwt.sign(
-      { username: validUser.username },
+      { 
+        username: validUser.username,
+        sessionId: session.sessionId,
+        associatedWith: validUser.associatedWith
+      },
       req.config.jwt.secret,
       { expiresIn: req.config.jwt.expiresIn }
     );
@@ -30,7 +35,14 @@ const appLogin = async (req, res) => {
     res.json({
       success: true,
       token,
-      user: { username: validUser.username }
+      user: { 
+        username: validUser.username,
+        associatedWith: validUser.associatedWith
+      },
+      session: {
+        sessionId: session.sessionId,
+        expiresAt: session.expiresAt
+      }
     });
 
   } catch (error) {
@@ -57,8 +69,8 @@ const exchangeCode = async (req, res) => {
       return res.status(400).json({ error: 'Failed to exchange auth code' });
     }
 
-    // Store tokens for this user
-    await tokenStore.storeTokens(req.user.username, tokens);
+    // Store tokens for this user (encrypted in PostgreSQL)
+    await tokenStore.storeTokens(req.user.username, tokens, req.config.encryption.key);
 
     res.json({
       success: true,
@@ -71,7 +83,64 @@ const exchangeCode = async (req, res) => {
   }
 };
 
+const validateSession = async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+    
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Session ID required' });
+    }
+
+    const session = await userManager.validateSession(sessionId);
+    
+    if (!session) {
+      return res.status(401).json({ 
+        valid: false, 
+        error: 'Invalid or expired session' 
+      });
+    }
+
+    // Check if user has YouTube tokens (directly or through association)
+    const tokens = await tokenStore.getTokens(session.username, req.config.encryption.key);
+    
+    res.json({
+      valid: true,
+      user: {
+        username: session.username,
+        associatedWith: session.associatedWith
+      },
+      hasYouTubeAuth: !!tokens,
+      requiresYouTubeAuth: !tokens && !session.associatedWith
+    });
+
+  } catch (error) {
+    console.error('Session validation error:', error);
+    res.status(500).json({ error: 'Session validation failed' });
+  }
+};
+
+const logout = async (req, res) => {
+  try {
+    const sessionId = req.user.sessionId;
+    
+    if (sessionId) {
+      await userManager.deactivateSession(sessionId);
+    }
+
+    res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ error: 'Logout failed' });
+  }
+};
+
 module.exports = {
   appLogin,
-  exchangeCode
+  exchangeCode,
+  validateSession,
+  logout
 };
