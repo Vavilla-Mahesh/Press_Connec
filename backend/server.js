@@ -7,6 +7,7 @@ const dotenv = require('dotenv');
 
 const authController = require('./src/auth.controller');
 const liveController = require('./src/live.controller');
+const adminController = require('./src/admin.controller');
 const database = require('./src/database');
 const userManager = require('./src/user.manager');
 const tokenStore = require('./src/token.store');
@@ -98,7 +99,23 @@ app.use((req, res, next) => {
   next();
 });
 
-// JWT verification middleware with session validation
+// Admin middleware - only allow admin users (those without associatedWith)
+const verifyAdmin = async (req, res, next) => {
+  // First verify the token
+  await new Promise((resolve, reject) => {
+    verifyToken(req, res, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+  // Check if user is admin (no associatedWith)
+  if (req.user.associatedWith) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  next();
+};
 const verifyToken = async (req, res, next) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
 
@@ -137,7 +154,12 @@ app.post('/auth/validate-session', authController.validateSession);
 app.post('/auth/logout', verifyToken, authController.logout);
 app.post('/auth/exchange', verifyToken, authController.exchangeCode);
 
-// Add these routes to your server.js file after the existing live streaming routes
+// Admin routes
+app.post('/admin/users', verifyAdmin, adminController.createUser);
+app.get('/admin/users', verifyAdmin, adminController.getUsers);
+app.put('/admin/users/:username', verifyAdmin, adminController.updateUser);
+app.delete('/admin/users/:username', verifyAdmin, adminController.deleteUser);
+app.get('/admin/stats', verifyAdmin, adminController.getUserStats);
 
 // Enhanced live streaming routes
 app.post('/live/create', verifyToken, liveController.createLiveStream);
@@ -177,6 +199,11 @@ app.use((error, req, res, next) => {
     console.log('  POST /auth/validate-session');
     console.log('  POST /auth/logout');
     console.log('  POST /auth/exchange');
+    console.log('  POST /admin/users (admin only)');
+    console.log('  GET  /admin/users (admin only)');
+    console.log('  PUT  /admin/users/:username (admin only)');
+    console.log('  DELETE /admin/users/:username (admin only)');
+    console.log('  GET  /admin/stats (admin only)');
     console.log('  POST /live/create');
     console.log('  POST /live/end');
   });

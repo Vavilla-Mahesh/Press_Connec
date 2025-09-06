@@ -249,8 +249,39 @@ class _LoginScreenState extends State<LoginScreen>
       );
       
       if (success && mounted) {
-        Navigator.of(context).pushReplacementNamed('/youtube-connect');
+        // Check if user is admin and show admin option
+        if (authService.hasAdminAccess()) {
+          _showAdminOptions();
+        } else {
+          Navigator.of(context).pushReplacementNamed('/youtube-connect');
+        }
       }
     }
+  }
+
+  void _showAdminOptions() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Welcome Admin'),
+        content: const Text('Choose your action:'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).pushReplacementNamed('/admin');
+            },
+            child: const Text('Admin Panel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).pushReplacementNamed('/youtube-connect');
+            },
+            child: const Text('Go Live'),
+          ),
+        ],
+      ),
+    );
   }
 }

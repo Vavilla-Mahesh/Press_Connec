@@ -1,0 +1,33 @@
+{
+  "appLogin": [
+    {
+      "username": "admin",
+      "password": "change_this_password_123",
+      "associatedWith": null
+    },
+    {
+      "username": "user1",
+      "password": "user_password_123",
+      "associatedWith": "admin"
+    }
+  ],
+  "oauth": {
+    "clientId": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+    "redirectUri": "com.example.press_connect:/oauth2redirect"
+  },
+  "jwt": {
+    "secret": "your-super-secret-jwt-key-min-32-characters-long",
+    "expiresIn": "24h"
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "press_connect_db",
+    "user": "press_connect_user",
+    "password": "press_connect_pass",
+    "ssl": false
+  },
+  "encryption": {
+    "key": "your_32_character_encryption_key_here"
+  }
+}

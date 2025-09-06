@@ -12,6 +12,7 @@ import 'services/connection_service.dart';
 import 'ui/screens/login_screen.dart';
 import 'ui/screens/youtube_connect_screen.dart';
 import 'ui/screens/go_live_screen.dart';
+import 'ui/screens/admin_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -64,6 +65,7 @@ class PressConnectApp extends StatelessWidget {
               '/login': (context) => const LoginScreen(),
               '/youtube-connect': (context) => const YouTubeConnectScreen(),
               '/go-live': (context) => const GoLiveScreen(),
+              '/admin': (context) => const AdminScreen(),
             },
           );
         },

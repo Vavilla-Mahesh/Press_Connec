@@ -19,13 +19,16 @@ class AuthService extends ChangeNotifier {
   AuthState _authState = AuthState.initial;
   String? _errorMessage;
   GoogleSignInAccount? _googleUser;
+  Map<String, dynamic>? _userInfo;
   
   AuthState get authState => _authState;
   String? get errorMessage => _errorMessage;
   GoogleSignInAccount? get googleUser => _googleUser;
+  Map<String, dynamic>? get userInfo => _userInfo;
   bool get isAppAuthenticated => _authState == AuthState.appAuthenticated || 
                                  _authState == AuthState.youtubeAuthenticated;
   bool get isYouTubeAuthenticated => _authState == AuthState.youtubeAuthenticated;
+  bool get isAdmin => _userInfo?['associatedWith'] == null;
 
   GoogleSignIn? _googleSignIn;
 
@@ -83,6 +86,10 @@ class AuthService extends ChangeNotifier {
       if (response.statusCode == 200) {
         await _secureStorage.write(key: 'app_authenticated', value: 'true');
         await _secureStorage.write(key: 'app_session', value: response.data['token'] ?? '');
+        
+        // Store user info
+        _userInfo = response.data['user'];
+        await _secureStorage.write(key: 'user_info', value: response.data['user'].toString());
         
         _authState = AuthState.appAuthenticated;
         _errorMessage = null;
@@ -210,5 +217,15 @@ class AuthService extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
     }
+  }
+
+  /// Get current JWT token
+  Future<String?> getToken() async {
+    return await _secureStorage.read(key: 'app_session');
+  }
+
+  /// Check if current user has admin privileges
+  bool hasAdminAccess() {
+    return isAdmin && isAppAuthenticated;
   }
 }

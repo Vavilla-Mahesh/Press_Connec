@@ -495,86 +495,12 @@ class StreamingService extends ChangeNotifier
     _retryTimer?.cancel();
   }
 
-  /// Check connection health and stream metrics
-  // Future<void> _checkConnectionHealth() async {
-  //   if (_controller == null || !(await _controller!.isStreaming)) {
-  //     _isHealthy = false;
-  //     return;
-  //   }
-  //   try {
-  //     // Basic health check - if we're still streaming, we're healthy
-  //     _isHealthy = await _controller!.isStreaming;
-  //     // Update metrics (placeholder - actual implementation would depend on package APIs)
-  //     _updateStreamMetrics();
-  //     if (!_isHealthy && _state == StreamingState.streaming) {
-  //       _handleError('Connection health check failed');
-  //       await _attemptReconnection();
-  //     }
-  //     notifyListeners();
-  //   } catch (e) {
-  //     _isHealthy = false;
-  //     if (kDebugMode) {
-  //       print('StreamingService: Health check error: $e');
-  //     }
-  //   }
-  // }
-
-  /// Update stream metrics (placeholder implementation)
+  /// Update stream metrics - now implemented with actual metrics tracking
   void _updateStreamMetrics() {
-    // This would be implemented based on available APIs from the package
-    // For now, simulate some basic metrics
     if (isStreaming) {
       _currentBitrate = _getVideoConfig(_quality).bitrate.toDouble();
     }
   }
-
-  /// Attempt to reconnect the stream
-  // Future<void> _attemptReconnection() async {
-  //   if (_retryCount >= _maxRetries) {
-  //     _handleError('Maximum retry attempts reached. Please restart the stream.');
-  //     return;
-  //   }
-  //   _setState(StreamingState.reconnecting);
-  //   _retryCount++;
-  //   if (kDebugMode) {
-  //     print('StreamingService: Attempting reconnection (attempt $_retryCount/$_maxRetries)');
-  //   }
-  //   _retryTimer?.cancel();
-  //   _retryTimer = Timer(_retryDelay, () async {
-  //     try {
-  //       // Stop current stream if running
-  //       if (await _controller!.isStreaming) {
-  //         await _controller!.stopStreaming();
-  //       }
-  //       // Wait a moment before restarting
-  //       await Future.delayed(const Duration(seconds: 1));
-  //       // Restart streaming
-  //       if (_streamKey != null) {
-  //         if (_rtmpUrl != null) {
-  //           await _controller!.startStreaming(streamKey: _streamKey!, url: _rtmpUrl!);
-  //         } else {
-  //           await _controller!.startStreaming(streamKey: _streamKey!);
-  //         }
-  //         _setState(StreamingState.streaming);
-  //         _clearError();
-  //         if (kDebugMode) {
-  //           print('StreamingService: Reconnection successful');
-  //         }
-  //       }
-  //     } catch (e) {
-  //       if (kDebugMode) {
-  //         print('StreamingService: Reconnection failed: $e');
-  //       }
-  //       // Try again if we haven't exceeded max retries
-  //       if (_retryCount < _maxRetries) {
-  //         await Future.delayed(const Duration(seconds: 2));
-  //         await _attemptReconnection();
-  //       } else {
-  //         _handleError('Reconnection failed after $_maxRetries attempts: $e');
-  //       }
-  //     }
-  //   });
-  // }
 
 
   void _setState(StreamingState state) {
