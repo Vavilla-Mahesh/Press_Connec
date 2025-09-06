@@ -79,13 +79,21 @@ const initializeApp = async () => {
     console.log('Application initialized successfully');
   } catch (error) {
     console.error('Failed to initialize application:', error);
-    process.exit(1);
+    throw error; // Don't exit, let the caller handle it
   }
 };
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Serve static files from backend directory (for frontend components)
+app.use('/static', express.static(__dirname));
+
+// Serve frontend authentication service
+app.get('/auth-service.js', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend_auth_service.js'));
+});
 
 // Request logging
 app.use((req, res, next) => {
@@ -189,11 +197,16 @@ app.use((error, req, res, next) => {
 
 // Initialize app and start server
 (async () => {
-  await initializeApp();
+  try {
+    await initializeApp();
+  } catch (error) {
+    console.warn('Database initialization failed, but starting server anyway for static file serving:', error.message);
+  }
   
   app.listen(PORT, () => {
     console.log(`Press Connect Backend running on port ${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/health`);
+    console.log(`Frontend Auth Service: http://localhost:${PORT}/auth-service.js`);
     console.log('Available endpoints:');
     console.log('  POST /auth/app-login');
     console.log('  POST /auth/validate-session');
