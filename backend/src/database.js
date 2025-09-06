@@ -44,7 +44,7 @@ class Database {
     const createOAuthTokensTable = `
       CREATE TABLE IF NOT EXISTS oauth_tokens (
         id SERIAL PRIMARY KEY,
-        admin_id INTEGER NOT NULL REFERENCES users(id),
+        admin_id INTEGER UNIQUE NOT NULL REFERENCES users(id),
         access_token TEXT NOT NULL,
         refresh_token TEXT,
         expires_at BIGINT,

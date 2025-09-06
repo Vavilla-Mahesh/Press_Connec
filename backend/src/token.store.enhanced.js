@@ -32,7 +32,6 @@ const saveTokensToFile = async (tokens) => {
   }
 };
 
-// Database storage functions
 const storeTokensInDB = async (adminId, tokens) => {
   const query = `
     INSERT INTO oauth_tokens (admin_id, access_token, refresh_token, expires_at, updated_at)
