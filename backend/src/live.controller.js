@@ -1,9 +1,9 @@
 const googleOAuth = require('./google.oauth');
-const tokenStore = require('./token.store');
+const tokenStore = require('./token.store.enhanced');
 
 const createLiveStream = async (req, res) => {
   try {
-    const username = req.user.username;
+    const userIdentifier = req.user.userId || req.user.username;
 
     // Get stored tokens for this user
     let tokens = await tokenStore.getTokens(username);
@@ -133,7 +133,7 @@ const createLiveStream = async (req, res) => {
 const getBroadcastStatus = async (req, res) => {
   try {
     const { broadcastId } = req.params;
-    const username = req.user.username;
+    const userIdentifier = req.user.userId || req.user.username;
 
     if (!broadcastId) {
       return res.status(400).json({ error: 'Broadcast ID required' });
@@ -222,7 +222,7 @@ const getBroadcastStatus = async (req, res) => {
 const checkAndGoLiveEnhanced = async (req, res) => {
   try {
     const { broadcastId } = req.body;
-    const username = req.user.username;
+    const userIdentifier = req.user.userId || req.user.username;
 
     if (!broadcastId) {
       return res.status(400).json({ error: 'Broadcast ID required' });
@@ -357,7 +357,7 @@ const checkAndGoLiveEnhanced = async (req, res) => {
 // Alternative version with minimal content details (fallback approach)
 const createLiveStreamMinimal = async (req, res) => {
   try {
-    const username = req.user.username;
+    const userIdentifier = req.user.userId || req.user.username;
     let tokens = await tokenStore.getTokens(username);
 
     if (!tokens) {
@@ -450,7 +450,7 @@ const createLiveStreamMinimal = async (req, res) => {
 const checkAndGoLive = async (req, res) => {
   try {
     const { broadcastId } = req.body;
-    const username = req.user.username;
+    const userIdentifier = req.user.userId || req.user.username;
 
     if (!broadcastId) {
       return res.status(400).json({ error: 'Broadcast ID required' });
@@ -538,7 +538,7 @@ const checkAndGoLive = async (req, res) => {
 const endLiveStream = async (req, res) => {
   try {
     const { broadcastId } = req.body;
-    const username = req.user.username;
+    const userIdentifier = req.user.userId || req.user.username;
 
     if (!broadcastId) {
       return res.status(400).json({ error: 'Broadcast ID required' });
@@ -592,7 +592,7 @@ const endLiveStream = async (req, res) => {
 const transitionBroadcast = async (req, res) => {
   try {
     const { broadcastId, broadcastStatus } = req.body;
-    const username = req.user.username;
+    const userIdentifier = req.user.userId || req.user.username;
 
     if (!broadcastId || !broadcastStatus) {
       return res.status(400).json({ error: 'Broadcast ID and status required' });
