@@ -242,7 +242,7 @@ if (loginResult.success) {
 
 ## Frontend Integration
 
-See `frontend_auth_service.js` for a complete frontend authentication service that handles:
+See `backend/frontend_auth_service.js` for a complete frontend authentication service that handles:
 - localStorage session management
 - Session validation
 - App startup logic
@@ -263,7 +263,7 @@ See `frontend_auth_service.js` for a complete frontend authentication service th
 The system includes comprehensive tests:
 - `test_auth.js`: Tests password hashing, user associations, and JWT tokens
 - `test_complete_flow.js`: Tests complete authentication flow with mock database
-- `frontend_auth_service.js`: Frontend integration example
+- `backend/frontend_auth_service.js`: Frontend integration example
 
 All tests can run without requiring PostgreSQL setup, using mock implementations.
 
