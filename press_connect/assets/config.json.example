@@ -1,0 +1,26 @@
+{
+  "backendBaseUrl": "http://localhost:5000",
+  "googleClientId": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+  "youtubeScopes": [
+    "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.force-ssl"
+  ],
+  "app": {
+    "name": "Press Connect",
+    "version": "1.0.0"
+  },
+  "watermark": {
+    "defaultImagePath": "assets/images/watermark.png",
+    "defaultWatermarkOpacity": 0.3,
+    "maxOpacity": 1.0,
+    "minOpacity": 0.0
+  },
+  "streaming": {
+    "defaultBitrate": 2500000,
+    "defaultResolution": {
+      "width": 1280,
+      "height": 720
+    }
+  }
+}
